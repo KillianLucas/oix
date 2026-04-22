@@ -2,6 +2,31 @@
 
 In the codex-rs folder where the rust code lives:
 
+- Harness architecture is a hard constraint in this repo:
+  - Never route the live product runtime through an external agent CLI such as `claude`, `gemini`, or similar.
+  - The actual Open Interpreter runtime must stay a native Rust daemon/client stack that switches harness behavior internally.
+  - Harness switching in product code must preserve the same app-server <-> TUI contract as the default runtime path.
+  - If external harnesses are used for parity or capture work, keep that work outside the product runtime and out of user-facing product documentation.
+  - Provider-specific request shapes, tools, prompts, and headers that matter for parity must be reproduced directly in Rust.
+  - Harness parity must be graded from captured proxy traffic plus on-disk workspace effects. Terminal output, transcript formatting, `stdout`, `stderr`, and raw exit status are debug artifacts, not scoring inputs.
+
+- Provider and model catalogs are a hard constraint in this repo:
+  - Never hand-write or patch provider-specific model lists into Rust code as a product fix.
+  - If a provider is missing from onboarding or `/model`, fix the generator inputs, source mapping, or override files instead.
+  - Provider/model membership must come from maintained external sources and generated JSON artifacts, not ad hoc code paths.
+  - Small explicit overrides are allowed only for source normalization: base URLs, sort order, exclusions, picker visibility, or capability corrections when upstream metadata is incomplete.
+  - Transport metadata such as `wire_api` is part of that generated provider catalog contract too; do not hardcode generated providers to `chat` in Rust when the source/override data should decide between `responses`, `chat`, and `messages`.
+  - Treat the catalog generators as critical infrastructure:
+    - `codex-rs/scripts/write_provider_catalog.py` is the provider/model membership generator.
+    - `codex-rs/scripts/write_model_compatibility_catalog.py` is the capability metadata generator.
+    - The product should derive reasoning support, tool-calling eligibility, input modalities such as vision, and similar standardized picker metadata from those generated artifacts or live provider metadata, not from hand-maintained Rust lists.
+  - When provider or model catalog behavior changes, update the generation docs in `README.md` and any relevant docs under `docs/`.
+
+- Disk hygiene is a hard constraint in this repo:
+  - Delete temporary run directories, scratch homes, logs, replay captures, and other large intermediate artifacts as soon as they are no longer needed for the current task.
+  - Do not leave `target/debug/deps`, `target/debug/incremental`, `target/debug/build`, `/tmp` run directories, or sibling harness outputs around once they are no longer required for verification.
+  - Keep only the artifacts still needed for the user to run `interpreter`, inspect current results, or avoid an immediate rebuild.
+
 - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
 - When using format! and you can inline variables into {}, always do that.
 - Install any commands the repo relies on (for example `just`, `rg`, or `cargo-insta`) if they aren't already available before running instructions here.

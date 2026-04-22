@@ -77,6 +77,18 @@ pub(crate) fn build_specs_with_discoverable_tools(
     dynamic_tools: &[DynamicToolSpec],
 ) -> ToolRegistryBuilder {
     use crate::tools::handlers::ApplyPatchHandler;
+    use crate::tools::handlers::ClaudeAgentHandler;
+    use crate::tools::handlers::ClaudeAskUserQuestionHandler;
+    use crate::tools::handlers::ClaudeBashHandler;
+    use crate::tools::handlers::ClaudeEditHandler;
+    use crate::tools::handlers::ClaudeGlobHandler;
+    use crate::tools::handlers::ClaudeGrepHandler;
+    use crate::tools::handlers::ClaudeLspHandler;
+    use crate::tools::handlers::ClaudeReadHandler;
+    use crate::tools::handlers::ClaudeTodoWriteHandler;
+    use crate::tools::handlers::ClaudeWebFetchHandler;
+    use crate::tools::handlers::ClaudeWebSearchHandler;
+    use crate::tools::handlers::ClaudeWriteHandler;
     use crate::tools::handlers::CodeModeExecuteHandler;
     use crate::tools::handlers::CodeModeWaitHandler;
     use crate::tools::handlers::DynamicToolHandler;
@@ -193,6 +205,42 @@ pub(crate) fn build_specs_with_discoverable_tools(
             }
             ToolHandlerKind::ApplyPatch => {
                 builder.register_handler(handler.name, apply_patch_handler.clone());
+            }
+            ToolHandlerKind::ClaudeAgent => {
+                builder.register_handler(handler.name, Arc::new(ClaudeAgentHandler));
+            }
+            ToolHandlerKind::ClaudeAskUserQuestion => {
+                builder.register_handler(handler.name, Arc::new(ClaudeAskUserQuestionHandler));
+            }
+            ToolHandlerKind::ClaudeBash => {
+                builder.register_handler(handler.name, Arc::new(ClaudeBashHandler));
+            }
+            ToolHandlerKind::ClaudeEdit => {
+                builder.register_handler(handler.name, Arc::new(ClaudeEditHandler));
+            }
+            ToolHandlerKind::ClaudeGlob => {
+                builder.register_handler(handler.name, Arc::new(ClaudeGlobHandler));
+            }
+            ToolHandlerKind::ClaudeGrep => {
+                builder.register_handler(handler.name, Arc::new(ClaudeGrepHandler));
+            }
+            ToolHandlerKind::ClaudeLsp => {
+                builder.register_handler(handler.name, Arc::new(ClaudeLspHandler));
+            }
+            ToolHandlerKind::ClaudeRead => {
+                builder.register_handler(handler.name, Arc::new(ClaudeReadHandler));
+            }
+            ToolHandlerKind::ClaudeTodoWrite => {
+                builder.register_handler(handler.name, Arc::new(ClaudeTodoWriteHandler));
+            }
+            ToolHandlerKind::ClaudeWebFetch => {
+                builder.register_handler(handler.name, Arc::new(ClaudeWebFetchHandler));
+            }
+            ToolHandlerKind::ClaudeWebSearch => {
+                builder.register_handler(handler.name, Arc::new(ClaudeWebSearchHandler));
+            }
+            ToolHandlerKind::ClaudeWrite => {
+                builder.register_handler(handler.name, Arc::new(ClaudeWriteHandler));
             }
             ToolHandlerKind::CloseAgentV1 => {
                 builder.register_handler(handler.name, Arc::new(CloseAgentHandler));
