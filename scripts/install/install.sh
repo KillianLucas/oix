@@ -94,21 +94,22 @@ download_file() {
   url="$1"
   output="$2"
   token="$(github_token || true)"
+  accept_header="application/octet-stream"
 
   if command -v curl >/dev/null 2>&1; then
     if [ -n "$token" ]; then
-      curl -fsSL -H "Authorization: Bearer $token" -H "X-GitHub-Api-Version: 2022-11-28" "$url" -o "$output"
+      curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $accept_header" -H "X-GitHub-Api-Version: 2022-11-28" "$url" -o "$output"
     else
-      curl -fsSL "$url" -o "$output"
+      curl -fsSL -H "Accept: $accept_header" "$url" -o "$output"
     fi
     return
   fi
 
   if command -v wget >/dev/null 2>&1; then
     if [ -n "$token" ]; then
-      wget -q --header="Authorization: Bearer $token" --header="X-GitHub-Api-Version: 2022-11-28" -O "$output" "$url"
+      wget -q --header="Authorization: Bearer $token" --header="Accept: $accept_header" --header="X-GitHub-Api-Version: 2022-11-28" -O "$output" "$url"
     else
-      wget -q -O "$output" "$url"
+      wget -q --header="Accept: $accept_header" -O "$output" "$url"
     fi
     return
   fi
@@ -120,21 +121,28 @@ download_file() {
 download_text() {
   url="$1"
   token="$(github_token || true)"
+  accept_header="application/vnd.github+json"
+
+  case "$url" in
+    https://api.github.com/*/releases/assets/*)
+      accept_header="application/octet-stream"
+      ;;
+  esac
 
   if command -v curl >/dev/null 2>&1; then
     if [ -n "$token" ]; then
-      curl -fsSL -H "Authorization: Bearer $token" -H "X-GitHub-Api-Version: 2022-11-28" "$url"
+      curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $accept_header" -H "X-GitHub-Api-Version: 2022-11-28" "$url"
     else
-      curl -fsSL "$url"
+      curl -fsSL -H "Accept: $accept_header" "$url"
     fi
     return
   fi
 
   if command -v wget >/dev/null 2>&1; then
     if [ -n "$token" ]; then
-      wget -q --header="Authorization: Bearer $token" --header="X-GitHub-Api-Version: 2022-11-28" -O - "$url"
+      wget -q --header="Authorization: Bearer $token" --header="Accept: $accept_header" --header="X-GitHub-Api-Version: 2022-11-28" -O - "$url"
     else
-      wget -q -O - "$url"
+      wget -q --header="Accept: $accept_header" -O - "$url"
     fi
     return
   fi
@@ -148,6 +156,38 @@ release_url_for_asset() {
   resolved_version="$2"
 
   printf 'https://github.com/%s/releases/download/v%s/%s\n' "$GITHUB_REPO" "$resolved_version" "$asset"
+}
+
+release_api_url_for_asset() {
+  asset="$1"
+  resolved_version="$2"
+  release_json="$(download_text "$(release_metadata_url "$resolved_version")")"
+
+  asset_url="$(printf '%s\n' "$release_json" | awk -v asset="$asset" '
+    {
+      if (/"url":[[:space:]]*"https:\/\/api[.]github[.]com\/repos\/[^"]+\/releases\/assets\/[0-9]+"/) {
+        sub(/^.*"url":[[:space:]]*"/, "")
+        sub(/".*$/, "")
+        candidate_url = $0
+      }
+
+      if ($0 ~ "\"name\":[[:space:]]*\"" asset "\"" && candidate_url != "") {
+        asset_url = candidate_url
+      }
+    }
+    END {
+      if (asset_url != "") {
+        print asset_url
+      }
+    }
+  ')"
+
+  if [ -z "$asset_url" ]; then
+    echo "Could not find release asset $asset in v$resolved_version." >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$asset_url"
 }
 
 release_metadata_url() {
@@ -201,7 +241,7 @@ release_asset_digest() {
       ;;
   esac
 
-  checksum_url="$(release_url_for_asset "$asset.sha256" "$resolved_version")"
+  checksum_url="$(release_api_url_for_asset "$asset.sha256" "$resolved_version")"
   checksum_text="$(download_text "$checksum_url")"
   checksum="$(printf '%s\n' "$checksum_text" | awk '{print $1}' | head -n 1)"
   case "$checksum" in
@@ -597,9 +637,25 @@ update_current_link() {
 
 update_visible_command() {
   mkdir -p "$BIN_DIR"
-  tmp_link="$BIN_DIR/.interpreter.$$"
+  tmp_bin="$BIN_DIR/.interpreter.$$"
 
-  replace_path_with_symlink "$BIN_PATH" "$CURRENT_LINK/interpreter" "$tmp_link"
+  rm -f "$tmp_bin"
+  {
+    printf '%s\n' '#!/bin/sh'
+    printf '%s\n' "exec \"$CURRENT_LINK/interpreter\" \"\$@\""
+  } >"$tmp_bin"
+  chmod 0755 "$tmp_bin"
+
+  if mv -Tf "$tmp_bin" "$BIN_PATH" 2>/dev/null; then
+    return
+  fi
+
+  if mv -hf "$tmp_bin" "$BIN_PATH" 2>/dev/null; then
+    return
+  fi
+
+  rm -f "$BIN_PATH"
+  mv -f "$tmp_bin" "$BIN_PATH"
 }
 
 verify_visible_command() {
@@ -663,7 +719,7 @@ fi
 
 resolved_version="$(resolve_version)"
 asset="open-interpreter-$target.tar.gz"
-download_url="$(release_url_for_asset "$asset" "$resolved_version")"
+download_url="$(release_api_url_for_asset "$asset" "$resolved_version")"
 release_name="$resolved_version-$target"
 release_dir="$RELEASES_DIR/$release_name"
 current_version="$(current_installed_version)"
