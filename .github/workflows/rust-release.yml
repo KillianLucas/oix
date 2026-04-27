@@ -196,7 +196,7 @@ jobs:
             sha256sum "${dist_dir}/${{ matrix.archive }}" > "${dist_dir}/${{ matrix.archive }}.sha256"
           fi
 
-      - uses: actions/upload-artifact@2848b2cda0e5190984587ec6bb1f36730ca78d50
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: ${{ matrix.target }}
           path: dist/${{ matrix.target }}/*
