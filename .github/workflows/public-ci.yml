@@ -1,0 +1,83 @@
+name: public-ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-smoke:
+    name: Repository smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Validate workflow YAML
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].sort.each { |path| YAML.load_file(path); puts path }'
+
+      - name: Validate installer scripts
+        run: |
+          set -euo pipefail
+          bash -n scripts/install/install.sh
+          grep -q 'KillianLucas/oix' scripts/install/install.sh
+          grep -q 'KillianLucas/oix' scripts/install/install.ps1
+          grep -q 'open-interpreter' scripts/install/install.sh
+          grep -q 'open-interpreter' scripts/install/install.ps1
+
+      - name: Validate release workflow shape
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          require "yaml"
+
+          release = YAML.load_file(".github/workflows/rust-release.yml")
+          raise "release workflow missing tag trigger" unless release.fetch(true).fetch("push").fetch("tags").include?("v*.*.*")
+          raise "release workflow missing manual trigger" unless release.fetch(true).key?("workflow_dispatch")
+
+          text = File.read(".github/workflows/rust-release.yml")
+          %w[
+            aarch64-apple-darwin
+            x86_64-apple-darwin
+            x86_64-unknown-linux-musl
+            aarch64-unknown-linux-musl
+            x86_64-pc-windows-msvc
+            aarch64-pc-windows-msvc
+          ].each do |target|
+            raise "release workflow missing #{target}" unless text.include?(target)
+          end
+
+          raise "release workflow must publish open-interpreter archives" unless text.include?("open-interpreter-*.tar.gz")
+          RUBY
+
+      - name: Confirm inherited heavyweight workflows are manual-only
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          require "yaml"
+
+          manual_only = %w[
+            bazel.yml
+            blob-size-policy.yml
+            cargo-deny.yml
+            ci.yml
+            codespell.yml
+            rust-ci.yml
+            rust-ci-full.yml
+            sdk.yml
+            v8-canary.yml
+          ]
+
+          manual_only.each do |file|
+            workflow = YAML.load_file(File.join(".github/workflows", file))
+            triggers = workflow.fetch(true)
+            unexpected = triggers.keys - ["workflow_dispatch"]
+            raise "#{file} should stay manual-only, found #{unexpected.inspect}" unless unexpected.empty?
+          end
+          RUBY
