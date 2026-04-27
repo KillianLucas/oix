@@ -716,10 +716,10 @@ if [ "$os" = "darwin" ]; then
   fi
 else
   if [ "$arch" = "aarch64" ]; then
-    target="aarch64-unknown-linux-musl"
+    target="aarch64-unknown-linux-gnu"
     platform_label="Linux (ARM64)"
   else
-    target="x86_64-unknown-linux-musl"
+    target="x86_64-unknown-linux-gnu"
     platform_label="Linux (x64)"
   fi
 fi
