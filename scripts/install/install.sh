@@ -665,6 +665,40 @@ update_visible_command() {
   mv -f "$tmp_bin" "$BIN_PATH"
 }
 
+safe_to_replace_interpreter_shim() {
+  candidate="$1"
+
+  [ -n "$candidate" ] || return 1
+  [ "$candidate" != "$BIN_PATH" ] || return 1
+  [ -f "$candidate" ] || return 1
+  [ -w "$candidate" ] || return 1
+
+  grep -E 'open-interpreter-next/.*/target/.*/interpreter|codex-rs/target/.*/interpreter|[.]openinterpreter/packages/standalone/current/interpreter' "$candidate" >/dev/null 2>&1
+}
+
+update_shadowing_interpreter_command() {
+  resolved_interpreter="$(command -v interpreter 2>/dev/null || true)"
+
+  if [ -z "$resolved_interpreter" ] || [ "$resolved_interpreter" = "$BIN_PATH" ]; then
+    return
+  fi
+
+  if safe_to_replace_interpreter_shim "$resolved_interpreter"; then
+    tmp_shadow="$(dirname "$resolved_interpreter")/.interpreter.$$"
+    rm -f "$tmp_shadow"
+    {
+      printf '%s\n' '#!/bin/sh'
+      printf '%s\n' "exec \"$CURRENT_LINK/interpreter\" \"\$@\""
+    } >"$tmp_shadow"
+    chmod 0755 "$tmp_shadow"
+    mv -f "$tmp_shadow" "$resolved_interpreter"
+    step "Updated existing interpreter command at $resolved_interpreter"
+    return
+  fi
+
+  warn "interpreter currently resolves to $resolved_interpreter before $BIN_PATH. Run: export PATH=\"$BIN_DIR:\$PATH\""
+}
+
 verify_visible_command() {
   "$BIN_PATH" --version >/dev/null
 }
@@ -775,6 +809,7 @@ fi
 
 update_current_link "$release_dir"
 update_visible_command
+update_shadowing_interpreter_command
 add_to_path
 verify_visible_command
 release_install_lock
