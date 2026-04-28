@@ -665,7 +665,7 @@ update_visible_command() {
   mv -f "$tmp_bin" "$BIN_PATH"
 }
 
-safe_to_replace_interpreter_shim() {
+can_replace_existing_interpreter_command() {
   candidate="$1"
 
   [ -n "$candidate" ] || return 1
@@ -676,24 +676,27 @@ safe_to_replace_interpreter_shim() {
   grep -E '/target/(debug|release)/interpreter|[.]openinterpreter/packages/standalone/current/interpreter' "$candidate" >/dev/null 2>&1
 }
 
-update_shadowing_interpreter_command() {
+handle_existing_interpreter_command() {
   resolved_interpreter="$(command -v interpreter 2>/dev/null || true)"
 
   if [ -z "$resolved_interpreter" ] || [ "$resolved_interpreter" = "$BIN_PATH" ]; then
     return
   fi
 
-  if safe_to_replace_interpreter_shim "$resolved_interpreter"; then
-    tmp_shadow="$(dirname "$resolved_interpreter")/.interpreter.$$"
-    rm -f "$tmp_shadow"
-    {
-      printf '%s\n' '#!/bin/sh'
-      printf '%s\n' "exec \"$CURRENT_LINK/interpreter\" \"\$@\""
-    } >"$tmp_shadow"
-    chmod 0755 "$tmp_shadow"
-    mv -f "$tmp_shadow" "$resolved_interpreter"
-    step "Updated existing interpreter command at $resolved_interpreter"
-    return
+  if can_replace_existing_interpreter_command "$resolved_interpreter"; then
+    step "An existing interpreter command is already on PATH at $resolved_interpreter"
+    if prompt_yes_no "Replace it with this Open Interpreter install?"; then
+      tmp_existing="$(dirname "$resolved_interpreter")/.interpreter.$$"
+      rm -f "$tmp_existing"
+      {
+        printf '%s\n' '#!/bin/sh'
+        printf '%s\n' "exec \"$CURRENT_LINK/interpreter\" \"\$@\""
+      } >"$tmp_existing"
+      chmod 0755 "$tmp_existing"
+      mv -f "$tmp_existing" "$resolved_interpreter"
+      step "Replaced existing interpreter command at $resolved_interpreter"
+      return
+    fi
   fi
 
   warn "interpreter currently resolves to $resolved_interpreter before $BIN_PATH. Run: export PATH=\"$BIN_DIR:\$PATH\""
@@ -809,7 +812,7 @@ fi
 
 update_current_link "$release_dir"
 update_visible_command
-update_shadowing_interpreter_command
+handle_existing_interpreter_command
 add_to_path
 verify_visible_command
 release_install_lock
