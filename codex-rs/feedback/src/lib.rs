@@ -28,13 +28,11 @@ pub use feedback_diagnostics::FeedbackDiagnostic;
 pub use feedback_diagnostics::FeedbackDiagnostics;
 
 const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
-// Open Interpreter Sentry org. The same Sentry project also receives events
-// from the workstation app and other surfaces, so events from this binary are
-// distinguished by the `app` tag, the `release` prefix below, and the
-// `[interpreter-cli]` prefix in the event title.
-const SENTRY_DSN: &str =
-    "https://08dfb810b5cbe0897400cd839f715727@o4506046614667264.ingest.us.sentry.io/4510858434969600";
-const SENTRY_APP_TAG: &str = "interpreter-cli";
+// Open Interpreter Sentry org. The same project also receives events from
+// other surfaces, so CLI feedback is distinguished by the `app` tag, release
+// prefix, and event title prefix below.
+const SENTRY_DSN: &str = "https://08dfb810b5cbe0897400cd839f715727@o4506046614667264.ingest.us.sentry.io/4510858434969600";
+const SENTRY_APP_TAG: &str = "open-interpreter-cli";
 const UPLOAD_TIMEOUT_SECS: u64 = 10;
 const FEEDBACK_TAGS_TARGET: &str = "feedback_tags";
 const MAX_FEEDBACK_TAGS: usize = 64;
@@ -406,7 +404,12 @@ impl FeedbackSnapshot {
             transport: Some(Arc::new(DefaultTransportFactory {})),
             release: Some(format!("{SENTRY_APP_TAG}@{cli_version}").into()),
             environment: Some(
-                if cfg!(debug_assertions) { "development" } else { "production" }.into(),
+                if cfg!(debug_assertions) {
+                    "development"
+                } else {
+                    "production"
+                }
+                .into(),
             ),
             ..Default::default()
         });
@@ -425,7 +428,7 @@ impl FeedbackSnapshot {
 
         let mut envelope = Envelope::new();
         let title = format!(
-            "[{SENTRY_APP_TAG}][{}]: Interpreter session {}",
+            "[{SENTRY_APP_TAG}][{}]: Open Interpreter CLI session {}",
             display_classification(options.classification),
             self.thread_id
         );

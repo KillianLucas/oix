@@ -39,11 +39,12 @@ use tokio::sync::mpsc;
 const ANALYTICS_EVENTS_QUEUE_SIZE: usize = 256;
 const ANALYTICS_EVENTS_TIMEOUT: Duration = Duration::from_secs(10);
 const ANALYTICS_EVENT_DEDUPE_MAX_KEYS: usize = 4096;
-// Open Interpreter analytics endpoint. Replaces upstream Codex's
+// Open Interpreter analytics endpoint. This replaces upstream Codex's
 // `{chatgpt_base_url}/codex/analytics-events/events` so events from any
-// provider land in our infra. Disabled the same way Codex does it:
-// set `[analytics] enabled = false` in `~/.codex/config.toml`.
-const INTERPRETER_ANALYTICS_URL: &str = "https://oi-new-api.fly.dev/v0/interpreter-events";
+// provider land in our infrastructure. Users can still disable this with
+// `[analytics] enabled = false` in `~/.codex/config.toml`.
+const OPEN_INTERPRETER_ANALYTICS_URL: &str =
+    "https://oi-new-api.fly.dev/v0/open-interpreter-events";
 
 #[derive(Clone)]
 pub(crate) struct AnalyticsEventsQueue {
@@ -320,7 +321,7 @@ async fn send_track_events(
     let _ = auth_manager;
     let _ = base_url;
 
-    let url = INTERPRETER_ANALYTICS_URL;
+    let url = OPEN_INTERPRETER_ANALYTICS_URL;
     let payload = TrackEventsRequest { events };
 
     let response = create_client()
