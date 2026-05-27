@@ -28,3 +28,4 @@ Set `INTERPRETER_TUI_LOW_MEMORY=0` to disable this default. Advanced debugging
 can override the two pieces independently with
 `INTERPRETER_TUI_DROP_COMMITTED_HISTORY` and
 `INTERPRETER_TUI_ACTIVE_EXEC_OUTPUT_MAX_BYTES`.
+
