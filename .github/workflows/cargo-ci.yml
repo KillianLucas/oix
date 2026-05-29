@@ -102,8 +102,14 @@ jobs:
       #   codex-tui popups_and_settings::model_selection_popup_snapshot (1): insta
       #     snapshot -- likely snapshot-root/runfiles env or model-list drift.
       # ─────────────────────────────────────────────────────────────────────────
-      - name: cargo nextest (non-blocking; see comment above)
-        continue-on-error: true
-        run: cargo nextest run --workspace --exclude codex-linux-sandbox --cargo-profile ci-test --no-fail-fast
-        env:
-          RUST_MIN_STACK: "8388608" # 8 MiB
+      # DISABLED: the full nextest run self-terminates the unsandboxed runner --
+      # some codex-core process tests (unified_exec / terminate_all_processes /
+      # multi_agents) SIGTERM the job around test 3017/8342 (~5322 "not run due to
+      # signal" -> "operation was canceled"), on top of the ~38 failures above.
+      # Bazel runs these sandboxed. Re-enable by uncommenting (reuses the build's
+      # ci-test target dir, so it only runs -- no recompile).
+      # - name: cargo nextest (non-blocking; see comment above)
+      #   continue-on-error: true
+      #   run: cargo nextest run --workspace --exclude codex-linux-sandbox --cargo-profile ci-test --no-fail-fast
+      #   env:
+      #     RUST_MIN_STACK: "8388608" # 8 MiB
