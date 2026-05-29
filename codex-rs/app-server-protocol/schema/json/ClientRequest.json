@@ -6263,9 +6263,9 @@
         },
         "method": {
           "enum": [
-            "interpreterProvider/list"
+            "interpreter/provider/list"
           ],
-          "title": "InterpreterProvider/listRequestMethod",
+          "title": "Interpreter/provider/listRequestMethod",
           "type": "string"
         },
         "params": {
@@ -6277,7 +6277,7 @@
         "method",
         "params"
       ],
-      "title": "InterpreterProvider/listRequest",
+      "title": "Interpreter/provider/listRequest",
       "type": "object"
     },
     {
@@ -6288,9 +6288,9 @@
         },
         "method": {
           "enum": [
-            "interpreterModel/list"
+            "interpreter/model/list"
           ],
-          "title": "InterpreterModel/listRequestMethod",
+          "title": "Interpreter/model/listRequestMethod",
           "type": "string"
         },
         "params": {
@@ -6302,7 +6302,7 @@
         "method",
         "params"
       ],
-      "title": "InterpreterModel/listRequest",
+      "title": "Interpreter/model/listRequest",
       "type": "object"
     },
     {
@@ -6313,9 +6313,9 @@
         },
         "method": {
           "enum": [
-            "interpreterHarness/list"
+            "interpreter/harness/list"
           ],
-          "title": "InterpreterHarness/listRequestMethod",
+          "title": "Interpreter/harness/listRequestMethod",
           "type": "string"
         },
         "params": {
@@ -6327,7 +6327,7 @@
         "method",
         "params"
       ],
-      "title": "InterpreterHarness/listRequest",
+      "title": "Interpreter/harness/listRequest",
       "type": "object"
     },
     {
@@ -6338,9 +6338,9 @@
         },
         "method": {
           "enum": [
-            "interpreterProvider/set"
+            "interpreter/provider/set"
           ],
-          "title": "InterpreterProvider/setRequestMethod",
+          "title": "Interpreter/provider/setRequestMethod",
           "type": "string"
         },
         "params": {
@@ -6352,7 +6352,7 @@
         "method",
         "params"
       ],
-      "title": "InterpreterProvider/setRequest",
+      "title": "Interpreter/provider/setRequest",
       "type": "object"
     },
     {
@@ -6363,9 +6363,9 @@
         },
         "method": {
           "enum": [
-            "interpreterModel/set"
+            "interpreter/model/set"
           ],
-          "title": "InterpreterModel/setRequestMethod",
+          "title": "Interpreter/model/setRequestMethod",
           "type": "string"
         },
         "params": {
@@ -6377,7 +6377,7 @@
         "method",
         "params"
       ],
-      "title": "InterpreterModel/setRequest",
+      "title": "Interpreter/model/setRequest",
       "type": "object"
     },
     {
@@ -6388,9 +6388,9 @@
         },
         "method": {
           "enum": [
-            "interpreterHarness/set"
+            "interpreter/harness/set"
           ],
-          "title": "InterpreterHarness/setRequestMethod",
+          "title": "Interpreter/harness/setRequestMethod",
           "type": "string"
         },
         "params": {
@@ -6402,7 +6402,7 @@
         "method",
         "params"
       ],
-      "title": "InterpreterHarness/setRequest",
+      "title": "Interpreter/harness/setRequest",
       "type": "object"
     }
   ],

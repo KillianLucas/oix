@@ -666,32 +666,32 @@ client_request_definitions! {
 
     // NOTE(fork): append Open Interpreter methods below to avoid upstream merge conflicts.
     /// Lists known providers (configured + bundled catalog).
-    InterpreterProviderList => "interpreterProvider/list" {
+    InterpreterProviderList => "interpreter/provider/list" {
         params: v2::InterpreterProviderListParams,
         response: v2::InterpreterProviderListResponse,
     },
     /// Lists models for a provider.
-    InterpreterModelList => "interpreterModel/list" {
+    InterpreterModelList => "interpreter/model/list" {
         params: v2::InterpreterModelListParams,
         response: v2::InterpreterModelListResponse,
     },
     /// Lists the harness choices compatible with a provider/model.
-    InterpreterHarnessList => "interpreterHarness/list" {
+    InterpreterHarnessList => "interpreter/harness/list" {
         params: v2::InterpreterHarnessListParams,
         response: v2::InterpreterHarnessListResponse,
     },
     /// Persists the selected provider to config.
-    InterpreterProviderSet => "interpreterProvider/set" {
+    InterpreterProviderSet => "interpreter/provider/set" {
         params: v2::InterpreterProviderSetParams,
         response: v2::InterpreterProviderSetResponse,
     },
     /// Persists the selected model (and optional reasoning effort) to config.
-    InterpreterModelSet => "interpreterModel/set" {
+    InterpreterModelSet => "interpreter/model/set" {
         params: v2::InterpreterModelSetParams,
         response: v2::InterpreterModelSetResponse,
     },
     /// Persists the selected harness to config.
-    InterpreterHarnessSet => "interpreterHarness/set" {
+    InterpreterHarnessSet => "interpreter/harness/set" {
         params: v2::InterpreterHarnessSetParams,
         response: v2::InterpreterHarnessSetResponse,
     },
