@@ -37,7 +37,7 @@ app-server-backed terminal UI.
 | `interpreter fork` | Fork an interactive session. |
 | `interpreter exec` | Run non-interactively. |
 | `interpreter acp` | Run as an Agent Client Protocol agent over stdio. |
-| `interpreter kill` | Stop the local daemon. |
+| `interpreter kill` | Stop the local [daemon](/docs/daemon) (add `--force`/`-f` if it does not stop). |
 | `interpreter mcp` | Manage MCP server config. |
 | `interpreter mcp-server` | Expose Open Interpreter as an MCP server over stdio. |
 | `interpreter update` | Manage standalone updates. |

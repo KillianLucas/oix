@@ -829,7 +829,9 @@ impl ChatWidget {
 
         let header = self.model_menu_header(
             "Select Tool Harness",
-            &format!("{provider_name} / {model} will start a new chat."),
+            &format!(
+                "{provider_name} / {model} will start a new chat. Only harnesses compatible with this provider's API are shown."
+            ),
         );
         self.bottom_pane.show_selection_view(SelectionViewParams {
             footer_hint: Some(standard_popup_hint_line()),

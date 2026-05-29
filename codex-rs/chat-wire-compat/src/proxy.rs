@@ -592,7 +592,10 @@ impl ResponsesApiRequestOwned {
             service_tier: self.service_tier,
             prompt_cache_key: self.prompt_cache_key,
             text: self.text.map(TextControlsOwned::into_text_controls),
-            client_metadata: self.client_metadata,
+            // `client_metadata` is a Responses-API-only field. This proxy converts
+            // to chat completions for OpenAI-compatible upstreams (e.g. Groq) that
+            // reject unknown fields, so it must never be forwarded.
+            client_metadata: None,
         }
     }
 }

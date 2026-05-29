@@ -1607,6 +1607,9 @@ impl AuthModeWidget {
             Line::from(format!("> {} / {}", state.provider_name, state.model).bold()),
             "".into(),
             "  Choose a tool harness for this new chat.".into(),
+            "  Only harnesses compatible with this provider's API are shown."
+                .dim()
+                .into(),
             "".into(),
         ];
 

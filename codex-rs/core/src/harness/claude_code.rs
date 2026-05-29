@@ -134,6 +134,7 @@ pub(crate) fn build_request_for_profile(
     } else {
         Some(AnthropicThinkingConfig::enabled(max_tokens - 1))
     };
+    let thinking_enabled = thinking.is_some();
     let output_config = if profile.is_bare() {
         Some(AnthropicOutputConfig {
             effort: Some("high".to_string()),
@@ -177,12 +178,17 @@ pub(crate) fn build_request_for_profile(
         system,
         tools,
         thinking,
-        context_management: (!is_child_agent_request).then_some(AnthropicContextManagement {
-            edits: vec![AnthropicContextEdit {
-                edit_type: "clear_thinking_20251015",
-                keep: "all",
-            }],
-        }),
+        // The `clear_thinking_20251015` context edit is only valid when thinking
+        // is enabled or adaptive; Anthropic rejects the request otherwise (e.g.
+        // when reasoning effort is "none"). Only send it when thinking is on.
+        context_management: (!is_child_agent_request && thinking_enabled).then_some(
+            AnthropicContextManagement {
+                edits: vec![AnthropicContextEdit {
+                    edit_type: "clear_thinking_20251015",
+                    keep: "all",
+                }],
+            },
+        ),
         output_config,
         metadata: Some(build_request_metadata(session_id)),
         temperature: is_child_agent_request.then_some(1),
