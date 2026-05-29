@@ -41,6 +41,9 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - name: cargo nextest
-        run: cargo nextest run --no-fail-fast --cargo-profile ci-test
+        # --target is required: codex-linux-sandbox has cfg(target_os) deps, and
+        # CARGO_BIN_EXE_* is only wired for its integration tests when an explicit
+        # target splits the host/target unit graph (matches rust-ci-full.yml).
+        run: cargo nextest run --no-fail-fast --target x86_64-unknown-linux-gnu --cargo-profile ci-test
         env:
           RUST_MIN_STACK: "8388608" # 8 MiB
