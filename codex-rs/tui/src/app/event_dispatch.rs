@@ -1162,9 +1162,9 @@ impl App {
                 }
             }
             AppEvent::PersistHarnessSelection { harness } => {
-                let profile = self.active_profile.as_deref();
+                let profile = self.active_profile.clone();
                 match ConfigEditsBuilder::new(&self.config.codex_home)
-                    .with_profile(profile)
+                    .with_profile(profile.as_deref())
                     .set_harness(harness.as_deref())
                     .apply()
                     .await
@@ -1172,12 +1172,21 @@ impl App {
                     Ok(()) => {
                         self.config.harness = harness.clone();
                         self.chat_widget.set_harness(harness.clone());
-                        let harness_label = harness.as_deref().unwrap_or("Open Interpreter");
-                        let mut message = format!("Harness changed to {harness_label}");
-                        if let Some(profile) = profile {
-                            message.push_str(" for ");
-                            message.push_str(profile);
-                            message.push_str(" profile");
+                        let harness_label = harness.as_deref().unwrap_or("Codex").to_string();
+                        // The harness defines the tool interface and system prompt,
+                        // which are fixed when a session starts. Like switching
+                        // providers, changing it starts a fresh chat (resumable via
+                        // the printed hint) instead of leaving the running session —
+                        // with its already-built tools — unchanged.
+                        self.start_fresh_session_with_summary_hint(
+                            tui, app_server, /*session_start_source*/ None,
+                            /*initial_user_message*/ None,
+                        )
+                        .await;
+                        let mut message =
+                            format!("Harness changed to {harness_label}. Started a new chat.");
+                        if let Some(profile) = profile.as_deref() {
+                            message.push_str(&format!(" Saved for {profile} profile."));
                         }
                         self.chat_widget.add_info_message(message, /*hint*/ None);
                     }
@@ -1186,7 +1195,7 @@ impl App {
                             error = %err,
                             "failed to persist harness selection"
                         );
-                        if let Some(profile) = profile {
+                        if let Some(profile) = profile.as_deref() {
                             self.chat_widget.add_error_message(format!(
                                 "Failed to save harness for profile `{profile}`: {err}"
                             ));

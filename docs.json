@@ -51,6 +51,7 @@
           "docs/interactive",
           "docs/cli-reference",
           "docs/sessions",
+          "docs/daemon",
           "docs/slash_commands",
           "docs/web-search",
           "docs/auto-review"

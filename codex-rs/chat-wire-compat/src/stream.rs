@@ -51,7 +51,12 @@ struct Delta {
 
 #[derive(Debug, Deserialize)]
 struct ToolCallDelta {
-    index: usize,
+    // Some OpenAI-compatible providers (e.g. Groq's gpt-oss) omit `index` on
+    // tool-call deltas, where the OpenAI spec always includes it. Treat a
+    // missing index as a continuation of the most recent tool call rather than
+    // failing to parse the whole stream chunk.
+    #[serde(default)]
+    index: Option<usize>,
     #[serde(default)]
     id: Option<String>,
     #[serde(default)]
@@ -289,27 +294,25 @@ async fn process_chat_sse(
 
                 if let Some(tool_calls) = delta.tool_calls {
                     for tool_call in tool_calls {
-                        let starts_new_tool_call = tool_call.index
-                            > state.finalized_tool_call_count
+                        // Providers that omit `index` (e.g. Groq's gpt-oss) are
+                        // streaming a continuation of the most recent tool call.
+                        let index = tool_call
+                            .index
+                            .unwrap_or_else(|| state.tool_calls.len().saturating_sub(1));
+                        let starts_new_tool_call = index > state.finalized_tool_call_count
                             && tool_call.id.is_some()
                             && tool_call
                                 .function
                                 .as_ref()
                                 .is_some_and(|function| function.name.is_some());
                         if starts_new_tool_call
-                            && finalize_tool_calls_until(
-                                &tx_event,
-                                &mut state,
-                                &tool_kinds,
-                                tool_call.index,
-                            )
-                            .await
-                            .is_err()
+                            && finalize_tool_calls_until(&tx_event, &mut state, &tool_kinds, index)
+                                .await
+                                .is_err()
                         {
                             return;
                         }
-                        let partial =
-                            ensure_partial_tool_call(&mut state.tool_calls, tool_call.index);
+                        let partial = ensure_partial_tool_call(&mut state.tool_calls, index);
                         if let Some(id) = tool_call.id.filter(|id| !id.is_empty()) {
                             partial.id = Some(id);
                         }
@@ -617,6 +620,59 @@ mod tests {
                 token_usage: None,
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn spawn_chat_stream_reconstructs_tool_calls_without_index() {
+        // Regression for Groq's gpt-oss models, which omit `index` on tool-call
+        // deltas. Before the fix this failed the whole stream with
+        // "failed to parse chat completions chunk: missing field `index`".
+        let sse = concat!(
+            "data: {\"id\":\"chatcmpl-groq-1\",\"object\":\"chat.completion.chunk\",\"created\":0,",
+            "\"model\":\"openai/gpt-oss-120b\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{",
+            "\"id\":\"call-shell-1\",\"function\":{\"name\":\"shell\",\"arguments\":\"{\\\"command\\\":[\\\"/bin/echo\\\"\"}}]},",
+            "\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-groq-1\",\"object\":\"chat.completion.chunk\",\"created\":0,",
+            "\"model\":\"openai/gpt-oss-120b\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{",
+            "\"function\":{\"arguments\":\",\\\"groq\\\"],\\\"timeout_ms\\\":1000}\"}}]},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-groq-1\",\"object\":\"chat.completion.chunk\",\"created\":0,",
+            "\"model\":\"openai/gpt-oss-120b\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let mut tool_kinds = HashMap::new();
+        tool_kinds.insert("shell".to_string(), ToolOutputKind::Function);
+
+        let mut stream = spawn_chat_stream(
+            Box::pin(futures::stream::once(async move { Ok(sse.into()) })),
+            Duration::from_secs(1),
+            /*telemetry*/ None,
+            tool_kinds,
+        );
+
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.expect("chat stream event (must not error on missing index)"));
+        }
+
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
+                    name,
+                    arguments,
+                    call_id,
+                    ..
+                }) if name == "shell"
+                    && call_id == "call-shell-1"
+                    && arguments
+                        == &json!({
+                            "command": ["/bin/echo", "groq"],
+                            "timeout_ms": 1_000,
+                        })
+                        .to_string()
+            )),
+            "expected a reconstructed shell tool call, got: {events:?}"
+        );
     }
 
     #[tokio::test]

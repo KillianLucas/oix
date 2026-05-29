@@ -82,10 +82,16 @@ impl<T: HttpTransport, A: AuthProvider> ChatCompletionsCompatClient<T, A> {
     )]
     pub async fn stream_chat_request_value(
         &self,
-        body: Value,
+        mut body: Value,
         tool_kinds: ToolKinds,
         options: ResponsesOptions,
     ) -> Result<ResponseStream, ApiError> {
+        // Drop request fields that the target chat provider does not accept. Some
+        // harnesses emit provider-specific extensions (e.g. kimi-cli's
+        // `prompt_cache_key`, deepseek-tui's `reasoning_content`) that strict
+        // OpenAI-compatible upstreams like Groq reject outright.
+        sanitize_chat_body_for_provider(&mut body, &self.provider.base_url);
+
         let ResponsesOptions {
             conversation_id,
             session_source,
@@ -242,6 +248,35 @@ impl<T: HttpTransport, A: AuthProvider> ChatCompletionsCompatClient<T, A> {
         }
         add_auth_headers(&self.auth, &mut request.headers);
         request
+    }
+}
+
+/// Remove request fields that specific strict OpenAI-compatible chat providers
+/// reject. These are optional, provider-specific extensions, so dropping them
+/// for upstreams that don't support them keeps every harness working without
+/// changing behavior on the providers that rely on them.
+fn sanitize_chat_body_for_provider(body: &mut Value, base_url: &str) {
+    let host = base_url.to_ascii_lowercase();
+    // Groq's chat completions endpoint is strict about unknown fields.
+    let is_groq = host.contains("api.groq.com");
+    if !is_groq {
+        return;
+    }
+    if let Some(obj) = body.as_object_mut() {
+        // `prompt_cache_key` is a Kimi/OpenAI extension (kimi-cli, kimi-code).
+        obj.remove("prompt_cache_key");
+        // `thinking` is a Kimi/Anthropic-style toggle (kimi-cli on thinking-toggle
+        // models); Groq's chat completions endpoint rejects it.
+        obj.remove("thinking");
+        // `reasoning_content` echoed back on assistant messages is a DeepSeek
+        // extension (deepseek-tui); Groq rejects it on assistant tool calls.
+        if let Some(messages) = obj.get_mut("messages").and_then(Value::as_array_mut) {
+            for message in messages {
+                if let Some(message_obj) = message.as_object_mut() {
+                    message_obj.remove("reasoning_content");
+                }
+            }
+        }
     }
 }
 

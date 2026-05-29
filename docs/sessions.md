@@ -86,10 +86,13 @@ max_bytes = 104857600
 ## Daemon
 
 The public `interpreter` launcher starts a local app-server-backed runtime for
-interactive work. Stop it with:
+interactive work, and reuses it across runs so subsequent launches are fast.
+Stop it with:
 
 ```bash
 interpreter kill
 ```
 
-Use `--force` only when a normal stop does not return.
+Use `--force` only when a normal stop does not return. See the
+[Daemon](/docs/daemon) page for startup behavior, file locations, and
+troubleshooting.

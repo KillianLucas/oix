@@ -5,6 +5,8 @@ use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::bundled_provider_catalog;
+use codex_model_provider_info::bundled_provider_catalog_entry;
+use codex_model_provider_info::bundled_provider_catalog_entry_for_base_url;
 use codex_model_provider_info::default_harness_for_provider_model;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
@@ -93,10 +95,24 @@ pub(crate) fn harness_choices_for_provider_model(
     wire_api: Option<WireApi>,
     model: Option<&str>,
 ) -> Vec<HarnessChoice> {
+    // Determine the provider's wire API from a single authoritative source so
+    // every screen (onboarding, `/harness`, model switcher) offers the same set
+    // of harnesses for the same provider. The bundled catalog — looked up by id,
+    // then by base URL — is authoritative for built-in providers; only fall back
+    // to the caller-supplied `wire_api` for custom providers that aren't in the
+    // catalog. Without this, call sites that don't know a provider's wire (e.g.
+    // the new-chat onboarding flow, where built-in providers are reserved and
+    // absent from `model_providers`) defaulted to `Responses` and only ever
+    // offered the Codex harness.
+    let wire_api = bundled_provider_catalog_entry(provider_id)
+        .or_else(|| base_url.and_then(bundled_provider_catalog_entry_for_base_url))
+        .map(|entry| entry.wire_api)
+        .or(wire_api)
+        .unwrap_or_default();
     let provider = ModelProviderInfo {
         name: provider_name.unwrap_or_default().to_string(),
         base_url: base_url.map(ToOwned::to_owned),
-        wire_api: wire_api.unwrap_or_default(),
+        wire_api,
         ..Default::default()
     };
     let recommended = default_harness_for_provider_model(provider_id, &provider, model);
@@ -127,7 +143,7 @@ pub(crate) fn harness_choices_for_provider_model(
 
 fn harness_choice(harness: &str, is_recommended: bool) -> HarnessChoice {
     let base_label = match harness {
-        "" => "Open Interpreter",
+        "" => "Codex",
         "claude-code" => "Claude Code",
         "claude-code-bare" => "Claude Code Bare",
         "kimi-cli" => "Kimi CLI",
@@ -146,7 +162,7 @@ fn harness_choice(harness: &str, is_recommended: bool) -> HarnessChoice {
         base_label.to_string()
     };
     let description = match harness {
-        "" => "Use Open Interpreter's native tool interface.",
+        "" => "Use the native Codex tool harness.",
         "claude-code" => "Use the Claude Code-style tool harness.",
         "claude-code-bare" => "Use the lean Claude Code-style harness.",
         "kimi-cli" => "Use the Kimi CLI-style tool harness.",
@@ -675,6 +691,41 @@ mod tests {
     use super::*;
     use codex_protocol::openai_models::ReasoningControl;
     use codex_protocol::openai_models::default_input_modalities;
+
+    #[test]
+    fn catalog_provider_offers_all_chat_harnesses_regardless_of_passed_wire() {
+        // Groq is a `chat` provider in the bundled catalog. Every entry point
+        // should offer the full chat harness set, even when the caller doesn't
+        // know the wire (None) or passes a stale/incorrect one (Responses).
+        for passed_wire in [None, Some(WireApi::Responses), Some(WireApi::Chat)] {
+            // Found by id.
+            let by_id = harness_choices_for_provider_model(
+                "groq",
+                Some("Groq"),
+                Some("https://api.groq.com/openai/v1"),
+                passed_wire,
+                Some("openai/gpt-oss-120b"),
+            );
+            // Found only by base URL (unknown id).
+            let by_base_url = harness_choices_for_provider_model(
+                "custom-groq",
+                Some("Groq"),
+                Some("https://api.groq.com/openai/v1"),
+                passed_wire,
+                Some("openai/gpt-oss-120b"),
+            );
+            assert!(
+                by_id.len() > 1,
+                "by_id wire={passed_wire:?} len={}",
+                by_id.len()
+            );
+            assert!(
+                by_base_url.len() > 1,
+                "by_base_url wire={passed_wire:?} len={}",
+                by_base_url.len()
+            );
+        }
+    }
 
     fn loading_state(provider_id: &str, provider_name: &str) -> LoadingProviderModelsState {
         LoadingProviderModelsState {

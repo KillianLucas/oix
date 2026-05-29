@@ -8865,7 +8865,9 @@ impl ChatWidget {
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
             title: Some("Select Tool Harness".to_string()),
-            subtitle: Some(format!("{provider_name} / {model}")),
+            subtitle: Some(format!(
+                "{provider_name} / {model} · showing only harnesses compatible with this provider's API"
+            )),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()
@@ -9423,7 +9425,9 @@ impl ChatWidget {
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
             title: Some("Select Tool Harness".to_string()),
-            subtitle: Some(format!("{provider_name} / {model}")),
+            subtitle: Some(format!(
+                "{provider_name} / {model} · showing only harnesses compatible with this provider's API"
+            )),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()

@@ -18,9 +18,9 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::time::Instant;
 
-/// The animated label, including the leading bullet that the TUI's
+/// The animated label, including the leading bullet icon that the TUI's
 /// "Interpreting" indicator also shimmers.
-const LABEL: &str = "\u{2022} Starting Open Interpreter\u{2026}";
+const LABEL: &str = "\u{2022} Starting up...";
 
 /// Frame interval — matches the TUI status indicator's 32ms cadence.
 const FRAME: Duration = Duration::from_millis(32);
@@ -49,8 +49,9 @@ impl StartupStatus {
         })
     }
 
-    /// Stop the animation, join the render thread, and clear the line so the
-    /// terminal is clean before the TUI (or any subsequent output) takes over.
+    /// Stop the animation, join the render thread, and wipe every trace of the
+    /// status line — including the blank line we added above it — so the TUI
+    /// (or any subsequent output) starts on a clean screen.
     pub(crate) fn finish(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
@@ -58,8 +59,9 @@ impl StartupStatus {
         }
 
         let mut stderr = std::io::stderr().lock();
-        // Clear the animated line, then leave two blank lines of breathing room.
-        let _ = write!(stderr, "\r\x1b[2K\n\n");
+        // Clear the animated line, move back up over the leading newline, and
+        // clear that line too, leaving the cursor exactly where we started.
+        let _ = write!(stderr, "\r\x1b[2K\x1b[1A\r\x1b[2K");
         let _ = stderr.flush();
     }
 }
@@ -69,8 +71,8 @@ fn animate(stop: &AtomicBool) {
     let start = Instant::now();
 
     let mut stderr = std::io::stderr().lock();
-    // Two newlines of separation above the status line, drawn once.
-    let _ = write!(stderr, "\n\n");
+    // One newline of separation above the status line, drawn once.
+    let _ = write!(stderr, "\n");
 
     while !stop.load(Ordering::Relaxed) {
         let frame = render_frame(start.elapsed(), truecolor);
