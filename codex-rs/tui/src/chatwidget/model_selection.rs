@@ -6,7 +6,6 @@ use crate::onboarding::model_selection::LoadingProviderModelsState;
 use crate::onboarding::model_selection::LocalProviderUnavailableState;
 use crate::onboarding::model_selection::ProviderModelLoadResolution;
 use crate::onboarding::model_selection::ProviderModelSelectionState;
-use crate::onboarding::model_selection::harness_choices_for_provider_model;
 use crate::onboarding::provider_setup::provider_preset_by_id;
 use crate::provider_model_flow::ProviderChoiceAction;
 use crate::provider_model_flow::model_picker_provider_choices;
@@ -14,6 +13,7 @@ use crate::provider_model_flow::model_picker_provider_choices;
 use crate::provider_model_flow::model_picker_provider_choices_with_snapshot;
 #[cfg(test)]
 use crate::provider_readiness::ProviderReadinessSnapshot;
+use codex_model_provider_info::harness_selection::harness_choices_for_provider_model;
 
 impl ChatWidget {
     fn loading_provider_models_state(

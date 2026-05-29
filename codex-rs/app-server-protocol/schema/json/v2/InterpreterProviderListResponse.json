@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "InterpreterProvider": {
+      "description": "A known provider: the union of configured providers and the bundled catalog. `configured` is true when present in `config.model_providers`; `is_default` is true when its id equals `config.model_provider_id`.",
+      "properties": {
+        "baseUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "configured": {
+          "type": "boolean"
+        },
+        "envKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "isDefault": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "wireApi": {
+          "$ref": "#/definitions/WireApiDto"
+        }
+      },
+      "required": [
+        "configured",
+        "id",
+        "isDefault",
+        "name",
+        "wireApi"
+      ],
+      "type": "object"
+    },
+    "WireApiDto": {
+      "description": "Wire protocol that a provider speaks. Mirror of `codex_model_provider_info::WireApi` so this crate does not depend on it.",
+      "oneOf": [
+        {
+          "description": "The Responses API exposed by OpenAI at `/v1/responses`.",
+          "enum": [
+            "responses"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "OpenAI-compatible Chat Completions exposed at `/v1/chat/completions`.",
+          "enum": [
+            "chat"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Anthropic Messages exposed at `/v1/messages`.",
+          "enum": [
+            "messages"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "data": {
+      "items": {
+        "$ref": "#/definitions/InterpreterProvider"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data"
+  ],
+  "title": "InterpreterProviderListResponse",
+  "type": "object"
+}
