@@ -130,6 +130,10 @@ pub async fn run_main(cli: ServerCli, arg0_paths: Arg0DispatchPaths) -> anyhow::
     }
 }
 
+// NOTE(parity): reuse codex_app_server_protocol's generators as-is, including their
+// HashSet/HashMap ordering. Output varies run-to-run, exactly like openai/codex.
+// This is deliberate: ordering with BTree* would make our artifacts diverge from
+// upstream and break the drop-in guarantee. Stay consistent with codex, not deterministic.
 fn handle_app_server_subcommand(command: AppServerCommand) -> anyhow::Result<()> {
     match command.subcommand {
         AppServerSubcommand::GenerateTs(gen_cli) => {
