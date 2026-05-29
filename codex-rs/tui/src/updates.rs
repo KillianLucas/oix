@@ -1,8 +1,7 @@
 #![cfg(all(feature = "startup-network", any(test, not(debug_assertions))))]
-// The self-update spawn/marker/lock helpers are only wired up in release builds
-// (their callers are gated on `not(debug_assertions)`). Under `cfg(test)` we still
-// compile this module to exercise the version-check logic, so allow the otherwise
-// unused production-only items rather than warn.
+// The spawn/marker/lock helpers are only wired up in release builds (callers are
+// gated on `not(debug_assertions)`), but `cfg(test)` still compiles this module to
+// exercise the version-check logic. Allow the unused production-only items.
 #![cfg_attr(test, allow(dead_code))]
 
 use crate::legacy_core::config::Config;
@@ -202,11 +201,10 @@ fn update_lock_filepath(config: &Config) -> PathBuf {
 
 /// Acquire the single-flight update lock as an OS advisory lock.
 ///
-/// Unlike "create a lock file and check it exists", an advisory lock is released
-/// by the kernel when the returned `File` is dropped *or the process exits*. A
-/// crash, SIGKILL, or the user quitting mid-update therefore cannot leave a
-/// stale lock that permanently disables future updates. The lock file is kept on
-/// disk purely as the lock anchor; its presence no longer gates anything.
+/// The kernel releases an advisory lock when the returned `File` is dropped or
+/// the process exits, so a crash, SIGKILL, or quit mid-update cannot leave a
+/// stale lock that permanently disables updates. The file is only the lock
+/// anchor; its existence no longer gates anything.
 fn try_acquire_update_lock(lock_file: &Path) -> Option<File> {
     if let Some(parent) = lock_file.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -218,9 +216,8 @@ fn try_acquire_update_lock(lock_file: &Path) -> Option<File> {
         .truncate(false)
         .open(lock_file)
         .ok()?;
-    // `Ok` means we hold it; `WouldBlock` means another interpreter is updating;
-    // any other error means we could not lock safely. In every non-`Ok` case we
-    // decline rather than risk a second concurrent update.
+    // `Ok` means we hold it. On any error (e.g. `WouldBlock` when another
+    // interpreter is updating) we decline rather than risk a concurrent update.
     match file.try_lock() {
         Ok(()) => Some(file),
         Err(_) => None,
@@ -235,9 +232,8 @@ fn spawn_update_command(
 ) {
     let marker_parent = marker_file.parent().map(Path::to_path_buf);
     std::thread::spawn(move || {
-        // Hold the advisory update lock for the lifetime of the update process.
-        // Dropping this guard (thread return) or the process exiting releases it,
-        // so the lock can never be leaked into a permanent lockout.
+        // Keep the advisory lock held for the update's lifetime; thread return or
+        // process exit drops the guard and releases it.
         let _lock_guard = lock_guard;
         let (command, args) = update_action.command_args();
         let command_status = std::process::Command::new(command)

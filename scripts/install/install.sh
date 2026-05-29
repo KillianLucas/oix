@@ -548,11 +548,10 @@ current_installed_version() {
 prompt_yes_no() {
   prompt="$1"
 
-  # Non-interactive callers (notably the in-app auto-updater, which re-runs this
-  # script with stdio redirected to /dev/null) must never block on a prompt. We
-  # read /dev/tty directly below, which is reachable even with null stdio, so also
-  # decline whenever stdout is not a terminal (matching install.ps1's
-  # redirected-stdio guard), and honor an explicit opt-out.
+  # Non-interactive callers (notably the auto-updater, which re-runs this with
+  # stdio redirected to /dev/null) must never block. The /dev/tty read below
+  # stays reachable even with null stdio, so also decline when stdout is not a
+  # terminal, and honor an explicit opt-out.
   if [ -n "${OPEN_INTERPRETER_NONINTERACTIVE:-}" ] || [ ! -t 1 ]; then
     return 1
   fi
