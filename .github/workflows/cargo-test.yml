@@ -25,6 +25,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
         with:
           components: rustfmt
+      - uses: taiki-e/install-action@60ae4ce63c7aeb6e96d7f572c1ec7fafbb17ca80 # v2
+        with:
+          tool: nextest
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: codex-rs
@@ -37,7 +40,7 @@ jobs:
           if sudo sysctl -a 2>/dev/null | grep -q '^kernel.apparmor_restrict_unprivileged_userns'; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
-      - name: cargo test
-        run: cargo test --workspace --locked --no-fail-fast
+      - name: cargo nextest
+        run: cargo nextest run --no-fail-fast --cargo-profile ci-test
         env:
           RUST_MIN_STACK: "8388608" # 8 MiB
