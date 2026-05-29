@@ -548,6 +548,14 @@ current_installed_version() {
 prompt_yes_no() {
   prompt="$1"
 
+  # Non-interactive callers (notably the in-app auto-updater, which re-runs this
+  # script with stdio redirected to /dev/null) must never block on a prompt.
+  # We read /dev/tty directly below, which is reachable even with null stdio, so
+  # honor an explicit opt-out and default to "no".
+  if [ -n "${OPEN_INTERPRETER_NONINTERACTIVE:-}" ]; then
+    return 1
+  fi
+
   if ( : </dev/tty ) 2>/dev/null; then
     printf '%s [y/N] ' "$prompt" >/dev/tty
     if ! IFS= read -r answer </dev/tty; then

@@ -13,6 +13,7 @@ use chrono::Utc;
 use codex_login::default_client::create_client;
 use serde::Deserialize;
 use serde::Serialize;
+use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -151,10 +152,10 @@ pub fn spawn_auto_update_if_needed(config: &Config) {
         return;
     };
     let lock_file = update_lock_filepath(config);
-    if !try_create_update_lock(&lock_file) {
+    let Some(lock_guard) = try_acquire_update_lock(&lock_file) else {
         return;
-    }
-    spawn_update_command(update_action, latest_version, marker_file, Some(lock_file));
+    };
+    spawn_update_command(update_action, latest_version, marker_file, Some(lock_guard));
 }
 
 pub fn spawn_manual_update(config: &Config) -> anyhow::Result<()> {
@@ -165,14 +166,14 @@ pub fn spawn_manual_update(config: &Config) -> anyhow::Result<()> {
     };
     let marker_file = update_marker_filepath(config);
     let lock_file = update_lock_filepath(config);
-    if !try_create_update_lock(&lock_file) {
+    let Some(lock_guard) = try_acquire_update_lock(&lock_file) else {
         anyhow::bail!("An Open Interpreter update is already running.");
-    }
+    };
     spawn_update_command(
         update_action,
         "latest".to_string(),
         marker_file,
-        Some(lock_file),
+        Some(lock_guard),
     );
     Ok(())
 }
@@ -199,28 +200,52 @@ fn update_lock_filepath(config: &Config) -> PathBuf {
         .into_path_buf()
 }
 
-fn try_create_update_lock(lock_file: &Path) -> bool {
+/// Acquire the single-flight update lock as an OS advisory lock.
+///
+/// Unlike "create a lock file and check it exists", an advisory lock is released
+/// by the kernel when the returned `File` is dropped *or the process exits*. A
+/// crash, SIGKILL, or the user quitting mid-update therefore cannot leave a
+/// stale lock that permanently disables future updates. The lock file is kept on
+/// disk purely as the lock anchor; its presence no longer gates anything.
+fn try_acquire_update_lock(lock_file: &Path) -> Option<File> {
     if let Some(parent) = lock_file.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
+        .read(true)
         .write(true)
-        .create_new(true)
+        .create(true)
+        .truncate(false)
         .open(lock_file)
-        .is_ok()
+        .ok()?;
+    // `Ok` means we hold it; `WouldBlock` means another interpreter is updating;
+    // any other error means we could not lock safely. In every non-`Ok` case we
+    // decline rather than risk a second concurrent update.
+    match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(_) => None,
+    }
 }
 
 fn spawn_update_command(
     update_action: UpdateAction,
     version: String,
     marker_file: PathBuf,
-    lock_file: Option<PathBuf>,
+    lock_guard: Option<File>,
 ) {
     let marker_parent = marker_file.parent().map(Path::to_path_buf);
     std::thread::spawn(move || {
+        // Hold the advisory update lock for the lifetime of the update process.
+        // Dropping this guard (thread return) or the process exiting releases it,
+        // so the lock can never be leaked into a permanent lockout.
+        let _lock_guard = lock_guard;
         let (command, args) = update_action.command_args();
         let command_status = std::process::Command::new(command)
             .args(args)
+            // Re-running the installer must never block on a TTY prompt: it reads
+            // /dev/tty directly even when stdio is null, which would otherwise
+            // render onto the live terminal and park this thread on a tty read.
+            .env("OPEN_INTERPRETER_NONINTERACTIVE", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -243,9 +268,6 @@ fn spawn_update_command(
             Err(err) => {
                 tracing::warn!("Failed to start Open Interpreter update command: {err}");
             }
-        }
-        if let Some(lock_file) = lock_file {
-            let _ = std::fs::remove_file(lock_file);
         }
     });
 }
@@ -376,5 +398,23 @@ mod tests {
         let releases_api_url = format!("{}/releases", server.uri());
         let result = latest_release_tag_name(&releases_api_url).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_lock_is_exclusive_and_released_on_drop() {
+        let dir = tempdir().expect("create temp dir");
+        let lock_path = dir.path().join(AUTO_UPDATE_LOCK_FILENAME);
+
+        let guard = try_acquire_update_lock(&lock_path).expect("first acquisition succeeds");
+        assert!(
+            try_acquire_update_lock(&lock_path).is_none(),
+            "a second concurrent acquisition must fail while the lock is held"
+        );
+
+        drop(guard);
+        assert!(
+            try_acquire_update_lock(&lock_path).is_some(),
+            "dropping the guard (proxy for process exit) must release the lock"
+        );
     }
 }
