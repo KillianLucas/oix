@@ -12,8 +12,12 @@ use serde::Deserialize;
 use serde::Serialize;
 use ts_rs::TS;
 
-/// Wire protocol that a provider speaks. Mirror of
-/// `codex_model_provider_info::WireApi` so this crate does not depend on it.
+/// Wire protocol a provider speaks, as it appears on the app-server JSON-RPC/TS
+/// contract. Deliberately a standalone copy of `codex_model_provider_info::WireApi`,
+/// which lives in a heavy domain crate this protocol crate must not depend on; a
+/// dedicated wire type also keeps the generated bindings insulated from internal
+/// refactors of that enum. Converters map between the two with an exhaustive match,
+/// so a new variant on either side fails to compile until it is mapped.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export_to = "v2/")]
