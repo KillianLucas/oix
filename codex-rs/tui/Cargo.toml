@@ -206,3 +206,4 @@ rand = { workspace = true }
 serial_test = { workspace = true }
 vt100 = { workspace = true }
 uuid = { workspace = true }
+wiremock = { workspace = true }

@@ -548,6 +548,14 @@ current_installed_version() {
 prompt_yes_no() {
   prompt="$1"
 
+  # Non-interactive callers (notably the auto-updater, which re-runs this with
+  # stdio redirected to /dev/null) must never block. The /dev/tty read below
+  # stays reachable even with null stdio, so also decline when stdout is not a
+  # terminal, and honor an explicit opt-out.
+  if [ -n "${OPEN_INTERPRETER_NONINTERACTIVE:-}" ] || [ ! -t 1 ]; then
+    return 1
+  fi
+
   if ( : </dev/tty ) 2>/dev/null; then
     printf '%s [y/N] ' "$prompt" >/dev/tty
     if ! IFS= read -r answer </dev/tty; then

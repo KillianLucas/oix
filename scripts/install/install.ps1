@@ -28,6 +28,12 @@ function Prompt-YesNo {
         [string]$Prompt
     )
 
+    # Non-interactive callers (notably the in-app auto-updater) must never block
+    # on a prompt; honor an explicit opt-out and default to "no".
+    if (-not [string]::IsNullOrWhiteSpace($env:OPEN_INTERPRETER_NONINTERACTIVE)) {
+        return $false
+    }
+
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
         return $false
     }
