@@ -299,27 +299,20 @@ async fn process_chat_sse(
                         let index = tool_call
                             .index
                             .unwrap_or_else(|| state.tool_calls.len().saturating_sub(1));
-                        let starts_new_tool_call = index
-                            > state.finalized_tool_call_count
+                        let starts_new_tool_call = index > state.finalized_tool_call_count
                             && tool_call.id.is_some()
                             && tool_call
                                 .function
                                 .as_ref()
                                 .is_some_and(|function| function.name.is_some());
                         if starts_new_tool_call
-                            && finalize_tool_calls_until(
-                                &tx_event,
-                                &mut state,
-                                &tool_kinds,
-                                index,
-                            )
-                            .await
-                            .is_err()
+                            && finalize_tool_calls_until(&tx_event, &mut state, &tool_kinds, index)
+                                .await
+                                .is_err()
                         {
                             return;
                         }
-                        let partial =
-                            ensure_partial_tool_call(&mut state.tool_calls, index);
+                        let partial = ensure_partial_tool_call(&mut state.tool_calls, index);
                         if let Some(id) = tool_call.id.filter(|id| !id.is_empty()) {
                             partial.id = Some(id);
                         }

@@ -1179,9 +1179,7 @@ impl App {
                         // the printed hint) instead of leaving the running session —
                         // with its already-built tools — unchanged.
                         self.start_fresh_session_with_summary_hint(
-                            tui,
-                            app_server,
-                            /*session_start_source*/ None,
+                            tui, app_server, /*session_start_source*/ None,
                             /*initial_user_message*/ None,
                         )
                         .await;
