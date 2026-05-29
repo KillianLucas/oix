@@ -12,6 +12,103 @@ pub struct HarnessChoice {
     pub is_recommended: bool,
 }
 
+/// One harness, in picker order. `id == ""` is the native (Codex) harness.
+/// Adding a harness is a single edit here: availability (`wire_apis`), `label`,
+/// and `description` all live in this one table rather than three parallel matches.
+struct HarnessInfo {
+    id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    /// Provider wire APIs that offer this harness.
+    wire_apis: &'static [WireApi],
+}
+
+const HARNESSES: &[HarnessInfo] = &[
+    HarnessInfo {
+        id: "",
+        label: "Codex",
+        description: "Use the native Codex tool harness.",
+        wire_apis: &[WireApi::Responses, WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "claude-code",
+        label: "Claude Code",
+        description: "Use the Claude Code-style tool harness.",
+        wire_apis: &[WireApi::Messages, WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "claude-code-bare",
+        label: "Claude Code Bare",
+        description: "Use the lean Claude Code-style harness.",
+        wire_apis: &[WireApi::Messages, WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "kimi-cli",
+        label: "Kimi CLI",
+        description: "Use the Kimi CLI-style tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "qwen-code",
+        label: "Qwen Code",
+        description: "Use the Qwen Code-style tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "deepseek-tui",
+        label: "DeepSeek TUI",
+        description: "Use the DeepSeek TUI-style tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "mini-swe-agent",
+        label: "mini-swe-agent",
+        description: "Use the mini-swe-agent-style tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "opencode",
+        label: "opencode",
+        description: "Use the opencode-style tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "swe-agent",
+        label: "SWE-agent",
+        description: "Use the SWE-agent-style tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "terminus-2",
+        label: "Terminus 2",
+        description: "Use the Terminus 2-style terminal harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+    HarnessInfo {
+        id: "minimal",
+        label: "Minimal",
+        description: "Use a minimal shell-oriented tool harness.",
+        wire_apis: &[WireApi::Chat],
+    },
+];
+
+impl HarnessInfo {
+    fn to_choice(&self, is_recommended: bool) -> HarnessChoice {
+        let label = if is_recommended {
+            format!("{} (recommended)", self.label)
+        } else {
+            self.label.to_string()
+        };
+        HarnessChoice {
+            // The native harness is stored as `None`; every other id as-is.
+            stored: (!self.id.is_empty()).then(|| self.id.to_string()),
+            label,
+            description: self.description.to_string(),
+            is_recommended,
+        }
+    }
+}
+
 pub fn harness_choices_for_provider_model(
     provider_id: &str,
     provider_name: Option<&str>,
@@ -39,71 +136,16 @@ pub fn harness_choices_for_provider_model(
         wire_api,
         ..Default::default()
     };
-    let recommended = default_harness_for_provider_model(provider_id, &provider, model);
-    let recommended = recommended.unwrap_or("");
-    let mut choices = match provider.wire_api {
-        WireApi::Messages => vec!["claude-code", "claude-code-bare"],
-        WireApi::Chat => vec![
-            "",
-            "claude-code",
-            "claude-code-bare",
-            "kimi-cli",
-            "qwen-code",
-            "deepseek-tui",
-            "mini-swe-agent",
-            "opencode",
-            "swe-agent",
-            "terminus-2",
-            "minimal",
-        ],
-        WireApi::Responses => vec![""],
-    };
-    choices.sort_by_key(|harness| usize::from(*harness != recommended));
+    let recommended =
+        default_harness_for_provider_model(provider_id, &provider, model).unwrap_or("");
+    let mut choices: Vec<&HarnessInfo> = HARNESSES
+        .iter()
+        .filter(|harness| harness.wire_apis.contains(&wire_api))
+        .collect();
+    // Show the recommended harness first; preserve table order otherwise.
+    choices.sort_by_key(|harness| usize::from(harness.id != recommended));
     choices
         .into_iter()
-        .map(|harness| harness_choice(harness, harness == recommended))
+        .map(|harness| harness.to_choice(harness.id == recommended))
         .collect()
-}
-
-fn harness_choice(harness: &str, is_recommended: bool) -> HarnessChoice {
-    let base_label = match harness {
-        "" => "Codex",
-        "claude-code" => "Claude Code",
-        "claude-code-bare" => "Claude Code Bare",
-        "kimi-cli" => "Kimi CLI",
-        "qwen-code" => "Qwen Code",
-        "deepseek-tui" => "DeepSeek TUI",
-        "mini-swe-agent" => "mini-swe-agent",
-        "opencode" => "opencode",
-        "swe-agent" => "SWE-agent",
-        "terminus-2" => "Terminus 2",
-        "minimal" => "Minimal",
-        other => other,
-    };
-    let label = if is_recommended {
-        format!("{base_label} (recommended)")
-    } else {
-        base_label.to_string()
-    };
-    let description = match harness {
-        "" => "Use the native Codex tool harness.",
-        "claude-code" => "Use the Claude Code-style tool harness.",
-        "claude-code-bare" => "Use the lean Claude Code-style harness.",
-        "kimi-cli" => "Use the Kimi CLI-style tool harness.",
-        "qwen-code" => "Use the Qwen Code-style tool harness.",
-        "deepseek-tui" => "Use the DeepSeek TUI-style tool harness.",
-        "mini-swe-agent" => "Use the mini-swe-agent-style tool harness.",
-        "opencode" => "Use the opencode-style tool harness.",
-        "swe-agent" => "Use the SWE-agent-style tool harness.",
-        "terminus-2" => "Use the Terminus 2-style terminal harness.",
-        "minimal" => "Use a minimal shell-oriented tool harness.",
-        _ => "Use this configured tool harness.",
-    }
-    .to_string();
-    HarnessChoice {
-        stored: (!harness.is_empty()).then(|| harness.to_string()),
-        label,
-        description,
-        is_recommended,
-    }
 }

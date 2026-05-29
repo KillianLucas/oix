@@ -16,6 +16,7 @@ use codex_app_server_protocol::InterpreterModelListResponse;
 use codex_app_server_protocol::InterpreterModelSetParams;
 use codex_app_server_protocol::InterpreterModelSetResponse;
 use codex_app_server_protocol::InterpreterProvider;
+use codex_app_server_protocol::InterpreterProviderListParams;
 use codex_app_server_protocol::InterpreterProviderListResponse;
 use codex_app_server_protocol::InterpreterProviderSetParams;
 use codex_app_server_protocol::InterpreterProviderSetResponse;
@@ -29,6 +30,7 @@ use codex_model_provider_info::bundled_provider_catalog;
 use codex_model_provider_info::harness_selection::harness_choices_for_provider_model;
 
 use crate::error_code::INTERNAL_ERROR_CODE;
+use crate::error_code::INVALID_PARAMS_ERROR_CODE;
 use crate::models::supported_models;
 use crate::models::supported_models_for_provider;
 
@@ -40,16 +42,45 @@ fn map_wire(wire_api: WireApi) -> WireApiDto {
     }
 }
 
+/// Constructors for the JSON-RPC errors these handlers return, so call sites read
+/// `JSONRPCErrorError::internal(msg)` instead of a bare struct literal. Defined as
+/// a fork-local extension trait (reusing `error_code`'s constants) because the
+/// type lives in `codex-app-server-protocol`, which cannot depend on this crate to
+/// host the constructors itself.
+trait JsonRpcErrorExt {
+    fn internal(message: String) -> Self;
+    fn invalid_params(message: String) -> Self;
+}
+
+impl JsonRpcErrorExt for JSONRPCErrorError {
+    fn internal(message: String) -> Self {
+        Self {
+            code: INTERNAL_ERROR_CODE,
+            data: None,
+            message,
+        }
+    }
+
+    fn invalid_params(message: String) -> Self {
+        Self {
+            code: INVALID_PARAMS_ERROR_CODE,
+            data: None,
+            message,
+        }
+    }
+}
+
 /// List known providers: configured providers union the bundled catalog.
 ///
 /// `configured` is true for entries present in `config.model_providers`;
-/// `is_default` is true when the id equals `config.model_provider_id`. When
-/// `include_unconfigured` is true, bundled catalog entries not already
-/// configured are appended with `configured = false`.
+/// `is_default` is true when the id equals `config.model_provider_id`.
+/// `include_unconfigured` defaults to true: when set (or omitted), bundled
+/// catalog entries not already configured are appended with `configured = false`.
 pub fn list_providers(
     config: &Config,
-    include_unconfigured: bool,
+    params: InterpreterProviderListParams,
 ) -> InterpreterProviderListResponse {
+    let include_unconfigured = params.include_unconfigured.unwrap_or(true);
     let mut data: Vec<InterpreterProvider> = config
         .model_providers
         .iter()
@@ -106,11 +137,7 @@ pub async fn list_models(
             include_hidden,
         )
         .await
-        .map_err(|message| JSONRPCErrorError {
-            code: crate::error_code::INVALID_PARAMS_ERROR_CODE,
-            message,
-            data: None,
-        })?,
+        .map_err(JSONRPCErrorError::invalid_params)?,
         None => supported_models(config, auth_manager, include_hidden).await,
     };
     Ok(InterpreterModelListResponse { data })
@@ -160,7 +187,9 @@ pub async fn set_provider(
         .set_model_provider(&provider_id)
         .apply()
         .await
-        .map_err(|err| internal_error(format!("failed to set model provider: {err}")))?;
+        .map_err(|err| {
+            JSONRPCErrorError::internal(format!("failed to set model provider: {err}"))
+        })?;
     Ok(InterpreterProviderSetResponse {})
 }
 
@@ -179,7 +208,7 @@ pub async fn set_model(
         .set_model(Some(&model), reasoning_effort)
         .apply()
         .await
-        .map_err(|err| internal_error(format!("failed to set model: {err}")))?;
+        .map_err(|err| JSONRPCErrorError::internal(format!("failed to set model: {err}")))?;
     Ok(InterpreterModelSetResponse {})
 }
 
@@ -194,16 +223,8 @@ pub async fn set_harness(
         .set_harness(harness.as_deref())
         .apply()
         .await
-        .map_err(|err| internal_error(format!("failed to set harness: {err}")))?;
+        .map_err(|err| JSONRPCErrorError::internal(format!("failed to set harness: {err}")))?;
     Ok(InterpreterHarnessSetResponse {})
-}
-
-fn internal_error(message: String) -> JSONRPCErrorError {
-    JSONRPCErrorError {
-        code: INTERNAL_ERROR_CODE,
-        message,
-        data: None,
-    }
 }
 
 #[cfg(test)]
@@ -270,7 +291,12 @@ mod tests {
             .insert("custom-b".to_string(), provider("Custom B", WireApi::Chat));
         config.model_provider_id = "custom-a".to_string();
 
-        let response = list_providers(&config, /*include_unconfigured*/ false);
+        let response = list_providers(
+            &config,
+            InterpreterProviderListParams {
+                include_unconfigured: Some(false),
+            },
+        );
 
         assert!(
             response.data.iter().all(|p| p.configured),
@@ -293,7 +319,12 @@ mod tests {
     async fn list_providers_excludes_catalog_when_not_requested() {
         let config = empty_config().await;
 
-        let response = list_providers(&config, /*include_unconfigured*/ false);
+        let response = list_providers(
+            &config,
+            InterpreterProviderListParams {
+                include_unconfigured: Some(false),
+            },
+        );
 
         // "openrouter" is in the bundled catalog but is not a built-in provider,
         // so it must not appear unless unconfigured providers were requested.
@@ -312,7 +343,12 @@ mod tests {
             provider("Anthropic", WireApi::Messages),
         );
 
-        let response = list_providers(&config, /*include_unconfigured*/ true);
+        let response = list_providers(
+            &config,
+            InterpreterProviderListParams {
+                include_unconfigured: Some(true),
+            },
+        );
 
         // A catalog-only provider appears as unconfigured.
         let openrouter = response
