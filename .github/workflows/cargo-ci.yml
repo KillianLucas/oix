@@ -31,6 +31,9 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: codex-rs
+          # Stable key so the cache survives job/workflow renames (the default
+          # add-job-id-key bakes the job name into the key and busts on rename).
+          shared-key: codex-rs
       - name: cargo fmt --check
         run: cargo fmt -- --config imports_granularity=Item --check
       # Hard gate: build the whole workspace including all test code (catches
