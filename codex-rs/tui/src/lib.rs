@@ -236,7 +236,7 @@ mod turn_sleep_inhibitor;
 mod ui_consts;
 pub(crate) mod update_action;
 pub use update_action::UpdateAction;
-#[cfg(all(not(debug_assertions), feature = "startup-network"))]
+#[cfg(all(feature = "startup-network", any(test, not(debug_assertions))))]
 mod updates;
 mod version;
 #[cfg(all(not(target_os = "linux"), feature = "realtime-audio"))]
