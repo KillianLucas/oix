@@ -17,6 +17,14 @@ jobs:
     defaults:
       run:
         working-directory: codex-rs
+    env:
+      # Compiler cache. sccache caches per-crate compilations -- including the
+      # workspace crates that Swatinem/rust-cache deliberately does NOT cache --
+      # in the GitHub Actions cache, so unchanged crates restore instead of
+      # recompiling. RUSTC_WRAPPER overrides the repo's .cargo/config wrapper.
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_CACHE_SIZE: 10G
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Install Linux build dependencies
@@ -26,6 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
         with:
           components: rustfmt
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - uses: taiki-e/install-action@60ae4ce63c7aeb6e96d7f572c1ec7fafbb17ca80 # v2
         with:
           tool: nextest
@@ -45,6 +54,8 @@ jobs:
       # does not wire for that crate (it is covered by the Bazel build).
       - name: cargo build (workspace + tests)
         run: cargo build --workspace --tests --exclude codex-linux-sandbox --profile ci-test --locked
+      - name: sccache stats (cache hit/miss proof)
+        run: sccache --show-stats
       - name: Enable unprivileged user namespaces
         run: |
           # Required for bubblewrap-based sandbox tests on Linux CI runners.
