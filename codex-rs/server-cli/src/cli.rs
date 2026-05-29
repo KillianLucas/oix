@@ -11,6 +11,7 @@ use codex_cli::mcp_cmd::McpCli;
 use codex_tui::Cli as TuiCli;
 use codex_utils_cli::CliConfigOverrides;
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -61,6 +62,61 @@ pub enum Subcommand {
 
     /// Manage standalone Open Interpreter updates.
     Update(UpdateCommand),
+
+    /// [experimental] Run app-server protocol tooling.
+    AppServer(AppServerCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AppServerCommand {
+    #[command(subcommand)]
+    pub subcommand: AppServerSubcommand,
+}
+
+#[derive(Debug, ClapSubcommand)]
+pub enum AppServerSubcommand {
+    /// [experimental] Generate TypeScript bindings for the app server protocol.
+    GenerateTs(GenerateTsCommand),
+
+    /// [experimental] Generate JSON Schema for the app server protocol.
+    GenerateJsonSchema(GenerateJsonSchemaCommand),
+
+    /// [internal] Generate internal JSON Schema artifacts for Codex tooling.
+    #[clap(hide = true)]
+    GenerateInternalJsonSchema(GenerateInternalJsonSchemaCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateTsCommand {
+    /// Output directory where .ts files will be written
+    #[arg(short = 'o', long = "out", value_name = "DIR")]
+    pub out_dir: PathBuf,
+
+    /// Optional path to the Prettier executable to format generated files
+    #[arg(short = 'p', long = "prettier", value_name = "PRETTIER_BIN")]
+    pub prettier: Option<PathBuf>,
+
+    /// Include experimental methods and fields in the generated output
+    #[arg(long = "experimental", default_value_t = false)]
+    pub experimental: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateJsonSchemaCommand {
+    /// Output directory where the schema bundle will be written
+    #[arg(short = 'o', long = "out", value_name = "DIR")]
+    pub out_dir: PathBuf,
+
+    /// Include experimental methods and fields in the generated output
+    #[arg(long = "experimental", default_value_t = false)]
+    pub experimental: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateInternalJsonSchemaCommand {
+    /// Output directory where internal JSON Schema artifacts will be written
+    #[arg(short = 'o', long = "out", value_name = "DIR")]
+    pub out_dir: PathBuf,
 }
 
 #[derive(Debug, Parser)]
@@ -307,6 +363,49 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     use pretty_assertions::assert_eq;
+    use std::path::Path;
+
+    #[test]
+    fn app_server_generate_ts_parses_flags() {
+        let cli = ServerCli::parse_from([
+            "interpreter",
+            "app-server",
+            "generate-ts",
+            "-o",
+            "/tmp/out",
+            "-p",
+            "/usr/bin/prettier",
+            "--experimental",
+        ]);
+
+        let Some(Subcommand::AppServer(AppServerCommand {
+            subcommand: AppServerSubcommand::GenerateTs(ts_cmd),
+        })) = cli.subcommand
+        else {
+            panic!("expected app-server generate-ts subcommand");
+        };
+        assert_eq!(ts_cmd.out_dir, Path::new("/tmp/out"));
+        assert_eq!(
+            ts_cmd.prettier.as_deref(),
+            Some(Path::new("/usr/bin/prettier"))
+        );
+        assert!(ts_cmd.experimental);
+    }
+
+    #[test]
+    fn app_server_generate_json_schema_parses_without_experimental() {
+        let cli =
+            ServerCli::parse_from(["interpreter", "app-server", "generate-json-schema", "--out", "/tmp/out"]);
+
+        let Some(Subcommand::AppServer(AppServerCommand {
+            subcommand: AppServerSubcommand::GenerateJsonSchema(schema_cmd),
+        })) = cli.subcommand
+        else {
+            panic!("expected app-server generate-json-schema subcommand");
+        };
+        assert_eq!(schema_cmd.out_dir, Path::new("/tmp/out"));
+        assert!(!schema_cmd.experimental);
+    }
 
     #[test]
     fn forwards_feature_toggles_into_config_overrides() {
