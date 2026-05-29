@@ -1,4 +1,6 @@
 use crate::cli::AltScreenCli;
+use crate::cli::AppServerCommand;
+use crate::cli::AppServerSubcommand;
 use crate::cli::ForkCommand;
 use crate::cli::KillCommand;
 use crate::cli::LaunchOptions;
@@ -124,6 +126,36 @@ pub async fn run_main(cli: ServerCli, arg0_paths: Arg0DispatchPaths) -> anyhow::
                 .await
         }
         Some(Subcommand::Update(update)) => run_update_command(update),
+        Some(Subcommand::AppServer(app_server)) => handle_app_server_subcommand(app_server),
+    }
+}
+
+// NOTE(parity): reuse codex_app_server_protocol's generators as-is, including their
+// HashSet/HashMap ordering. Output varies run-to-run, exactly like openai/codex.
+// This is deliberate: ordering with BTree* would make our artifacts diverge from
+// upstream and break the drop-in guarantee. Stay consistent with codex, not deterministic.
+fn handle_app_server_subcommand(command: AppServerCommand) -> anyhow::Result<()> {
+    match command.subcommand {
+        AppServerSubcommand::GenerateTs(gen_cli) => {
+            let options = codex_app_server_protocol::GenerateTsOptions {
+                experimental_api: gen_cli.experimental,
+                ..Default::default()
+            };
+            codex_app_server_protocol::generate_ts_with_options(
+                &gen_cli.out_dir,
+                gen_cli.prettier.as_deref(),
+                options,
+            )
+        }
+        AppServerSubcommand::GenerateJsonSchema(gen_cli) => {
+            codex_app_server_protocol::generate_json_with_experimental(
+                &gen_cli.out_dir,
+                gen_cli.experimental,
+            )
+        }
+        AppServerSubcommand::GenerateInternalJsonSchema(gen_cli) => {
+            codex_app_server_protocol::generate_internal_json_schema(&gen_cli.out_dir)
+        }
     }
 }
 

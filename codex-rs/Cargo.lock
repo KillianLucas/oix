@@ -3448,6 +3448,7 @@ dependencies = [
  "codex-acp-server",
  "codex-app-server",
  "codex-app-server-launcher",
+ "codex-app-server-protocol",
  "codex-arg0",
  "codex-cli",
  "codex-core",

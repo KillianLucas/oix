@@ -153,7 +153,7 @@ fn scan_top_level_command(raw_args: &[OsString]) -> Option<TopLevelCommand> {
         }
 
         return match arg.as_ref() {
-            "help" | "resume" | "fork" | "exec" | "mcp" | "update" => {
+            "help" | "resume" | "fork" | "exec" | "mcp" | "update" | "app-server" => {
                 Some(TopLevelCommand::Passthrough)
             }
             "acp" => Some(TopLevelCommand::Acp),
