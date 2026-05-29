@@ -1,0 +1,38 @@
+name: rust-build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: rust-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt-and-build:
+    name: fmt + build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: codex-rs
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
+      - uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: codex-rs
+      - name: cargo fmt --check
+        run: cargo fmt -- --config imports_granularity=Item --check
+      # Build the whole workspace including all test code (catches cargo-only
+      # breakage and test-compile errors). codex-linux-sandbox is excluded: its
+      # integration tests use compile-time env!("CARGO_BIN_EXE_*"), which cargo
+      # does not wire for that crate (it is covered by the Bazel build).
+      - name: cargo build (workspace + tests)
+        run: cargo build --workspace --tests --exclude codex-linux-sandbox --profile ci-test --locked
