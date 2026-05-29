@@ -1,5 +1,6 @@
 name: cargo-ci
 
+# Workspace fmt + build gate, with a non-blocking test run (see job below).
 on:
   pull_request:
   push:
