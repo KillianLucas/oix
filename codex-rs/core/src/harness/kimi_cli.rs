@@ -189,6 +189,7 @@ pub(super) struct MessageBuildOptions {
     pub compact_function_arguments: bool,
     pub merge_assistant_text_with_following_tool_calls: bool,
     pub preserve_empty_tool_output: bool,
+    pub trim_user_message_trailing_newlines: bool,
 }
 
 impl MessageBuildOptions {
@@ -198,6 +199,17 @@ impl MessageBuildOptions {
             compact_function_arguments: false,
             merge_assistant_text_with_following_tool_calls: false,
             preserve_empty_tool_output: false,
+            trim_user_message_trailing_newlines: true,
+        }
+    }
+
+    pub fn kimi_code() -> Self {
+        Self {
+            omitted_reasoning_placeholder: None,
+            compact_function_arguments: true,
+            merge_assistant_text_with_following_tool_calls: false,
+            preserve_empty_tool_output: false,
+            trim_user_message_trailing_newlines: false,
         }
     }
 
@@ -207,6 +219,7 @@ impl MessageBuildOptions {
             compact_function_arguments: true,
             merge_assistant_text_with_following_tool_calls: true,
             preserve_empty_tool_output: true,
+            trim_user_message_trailing_newlines: true,
         }
     }
 }
@@ -283,7 +296,7 @@ pub(super) fn build_messages_with_options(
                         &mut pending_reasoning_content,
                     );
                     pending_reasoning_content.clear();
-                    if let Some(message_content) = convert_user_message_content(content) {
+                    if let Some(message_content) = convert_user_message_content(content, options) {
                         messages.push(json!({
                             "role": "user",
                             "content": message_content,
@@ -655,8 +668,11 @@ fn convert_message_content(content: &[ContentItem]) -> Option<Value> {
     collapse_message_parts(convert_message_parts(content))
 }
 
-fn convert_user_message_content(content: &[ContentItem]) -> Option<Value> {
-    collapse_message_parts(convert_user_message_parts(content))
+fn convert_user_message_content(
+    content: &[ContentItem],
+    options: MessageBuildOptions,
+) -> Option<Value> {
+    collapse_message_parts(convert_user_message_parts(content, options))
 }
 
 fn convert_message_parts(content: &[ContentItem]) -> Vec<Value> {
@@ -678,14 +694,21 @@ fn convert_message_parts(content: &[ContentItem]) -> Vec<Value> {
         .collect()
 }
 
-fn convert_user_message_parts(content: &[ContentItem]) -> Vec<Value> {
+fn convert_user_message_parts(content: &[ContentItem], options: MessageBuildOptions) -> Vec<Value> {
     content
         .iter()
         .map(|item| match item {
-            ContentItem::InputText { text } | ContentItem::OutputText { text } => json!({
-                "type": "text",
-                "text": text.trim_end_matches('\n'),
-            }),
+            ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                let text = if options.trim_user_message_trailing_newlines {
+                    text.trim_end_matches('\n')
+                } else {
+                    text
+                };
+                json!({
+                    "type": "text",
+                    "text": text,
+                })
+            }
             ContentItem::InputImage { image_url, .. } => json!({
                 "type": "image_url",
                 "image_url": {
@@ -1294,6 +1317,32 @@ mod tests {
             vec![json!({
                 "role": "user",
                 "content": "hello",
+            })]
+        );
+    }
+
+    #[test]
+    fn kimi_code_user_messages_preserve_trailing_newline() {
+        let items = vec![ResponseItem::Message {
+            id: Some("user".to_string()),
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "hello\n".to_string(),
+            }],
+            end_turn: None,
+            phase: None,
+        }];
+
+        let messages =
+            super::build_messages_with_options(&items, super::MessageBuildOptions::kimi_code())
+                .expect("build messages")
+                .collect::<Vec<_>>();
+
+        assert_eq!(
+            messages,
+            vec![json!({
+                "role": "user",
+                "content": "hello\n",
             })]
         );
     }

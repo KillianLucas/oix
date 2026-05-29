@@ -384,7 +384,96 @@ fn normalize_bash_observation_line(line: &str) -> String {
 }
 
 fn extract_bash_action(content: &str) -> Option<String> {
-    extract_fenced_bash_action(content)
+    extract_execute_bash_action(content).or_else(|| extract_fenced_bash_action(content))
+}
+
+fn extract_execute_bash_action(content: &str) -> Option<String> {
+    extract_named_tool_code(content, "execute_bash")
+        .or_else(|| extract_bash_invoke_action(content))
+        .or_else(|| extract_tagged_code(content, "execute_bash"))
+}
+
+fn extract_named_tool_code(content: &str, tool_name: &str) -> Option<String> {
+    let mut remaining = content;
+    while let Some(start) = remaining.find("<tool_invoke>") {
+        let after_start = &remaining[start + "<tool_invoke>".len()..];
+        let end = after_start.find("</tool_invoke>")?;
+        let block = &after_start[..end];
+        if extract_tag_text(block, "name").as_deref() == Some(tool_name)
+            && let Some(code) = extract_tag_text(block, "code")
+        {
+            return normalize_action_command(&decode_xml_entities(&code));
+        }
+        remaining = &after_start[end + "</tool_invoke>".len()..];
+    }
+    None
+}
+
+fn extract_bash_invoke_action(content: &str) -> Option<String> {
+    let mut remaining = content;
+    while let Some(start) = remaining.find("<invoke name=") {
+        let after_start = &remaining[start..];
+        let open_end = after_start.find('>')?;
+        let open_tag = &after_start[..=open_end];
+        let is_bash = open_tag.contains("name=\"bash\"")
+            || open_tag.contains("name='bash'")
+            || open_tag.contains("name=\"execute_bash\"")
+            || open_tag.contains("name='execute_bash'");
+        let after_open = &after_start[open_end + 1..];
+        let end = after_open.find("</invoke>")?;
+        let block = &after_open[..end];
+        if is_bash
+            && let Some(command) = extract_named_parameter(block, "command")
+                .or_else(|| extract_tag_text(block, "command"))
+        {
+            return normalize_action_command(&decode_xml_entities(&command));
+        }
+        remaining = &after_open[end + "</invoke>".len()..];
+    }
+    None
+}
+
+fn extract_named_parameter(content: &str, parameter_name: &str) -> Option<String> {
+    for open_tag in [
+        format!("<parameter name=\"{parameter_name}\">"),
+        format!("<parameter name='{parameter_name}'>"),
+    ] {
+        if let Some(start) = content.find(&open_tag) {
+            let after_start = &content[start + open_tag.len()..];
+            if let Some(nested_start) = after_start.find("<parameter>") {
+                let after_nested = &after_start[nested_start + "<parameter>".len()..];
+                let nested_end = after_nested.find("</parameter>")?;
+                return Some(after_nested[..nested_end].to_string());
+            }
+            let end = after_start.find("</parameter>")?;
+            return Some(after_start[..end].to_string());
+        }
+    }
+    None
+}
+
+fn extract_tagged_code(content: &str, tag: &str) -> Option<String> {
+    let block = extract_tag_text(content, tag)?;
+    let code = extract_tag_text(&block, "code").unwrap_or(block);
+    normalize_action_command(&decode_xml_entities(&code))
+}
+
+fn extract_tag_text(content: &str, tag: &str) -> Option<String> {
+    let open_tag = format!("<{tag}>");
+    let close_tag = format!("</{tag}>");
+    let start = content.find(&open_tag)?;
+    let after_start = &content[start + open_tag.len()..];
+    let end = after_start.find(&close_tag)?;
+    Some(after_start[..end].to_string())
+}
+
+fn decode_xml_entities(content: &str) -> String {
+    content
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 fn extract_fenced_bash_action(content: &str) -> Option<String> {
@@ -532,6 +621,82 @@ mod tests {
         assert_eq!(
             extract_bash_action("Let's run this.\n```bash\npython test.py\n```"),
             Some("python test.py".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_execute_bash_tool_invoke_action() {
+        assert_eq!(
+            extract_bash_action(
+                "I'll inspect it.\n<tool_calls>\n<tool_invoke>\n<name>execute_bash</name>\n<code>ls -la /app</code>\n</tool_invoke>\n</tool_calls>"
+            ),
+            Some("ls -la /app".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_direct_execute_bash_action() {
+        assert_eq!(
+            extract_bash_action(
+                "DISCUSSION\n<execute_bash>\n<code>find /app -maxdepth 2 -type f</code>\n</execute_bash>"
+            ),
+            Some("find /app -maxdepth 2 -type f".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_bash_invoke_command_parameter_action() {
+        assert_eq!(
+            extract_bash_action(
+                "<tool_calls>\n<invoke name=\"bash\">\n<parameter name=\"command\">\n<parameter>ls -la /app</parameter>\n</parameter>\n</invoke>\n</tool_calls>"
+            ),
+            Some("ls -la /app".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_bash_invoke_command_tag_action() {
+        assert_eq!(
+            extract_bash_action(
+                "<tool_calls><invoke name=\"bash\"><response><command>find /app -type f</command></output></invoke></tool_calls>"
+            ),
+            Some("find /app -type f".to_string())
+        );
+    }
+
+    #[test]
+    fn builds_shell_call_from_execute_bash_tool_invoke_action() {
+        let item = build_harness_follow_up_item(
+            "<tool_calls><tool_invoke><name>execute_bash</name><code>python solve.py</code></tool_invoke></tool_calls>",
+            /*terminal_submit*/ false,
+        )
+        .expect("shell call");
+
+        let ResponseItem::LocalShellCall {
+            id,
+            call_id,
+            status,
+            action,
+        } = item
+        else {
+            panic!("expected shell call");
+        };
+        assert_eq!(id, None);
+        assert!(call_id.is_some_and(|call_id| call_id.starts_with("swe-agent-bash-")));
+        assert_eq!(status, LocalShellStatus::InProgress);
+        assert_eq!(
+            action,
+            LocalShellAction::Exec(LocalShellExecAction {
+                command: vec![
+                    "bash".to_string(),
+                    "-lc".to_string(),
+                    "python solve.py".to_string(),
+                ],
+                timeout_ms: Some(SWE_AGENT_BASH_TIMEOUT_MS),
+                working_directory: None,
+                env: None,
+                user: None,
+            })
         );
     }
 

@@ -71,18 +71,13 @@ pub(crate) fn model_provider_edit(profile: Option<&str>, provider_id: &str) -> A
 pub(crate) fn provider_model_selection_edits(
     profile: Option<&str>,
     provider_id: &str,
-    provider: Option<&ModelProviderInfo>,
+    _provider: Option<&ModelProviderInfo>,
     model: Option<&str>,
     effort: Option<ReasoningEffort>,
+    harness: Option<&str>,
 ) -> Vec<AppServerConfigEdit> {
     let mut edits = vec![model_provider_edit(profile, provider_id)];
-    match preferred_harness_for_provider_model(
-        provider_id,
-        provider.map(|entry| entry.name.as_str()),
-        provider.and_then(|entry| entry.base_url.as_deref()),
-        provider.map(|entry| entry.wire_api),
-        model,
-    ) {
+    match harness {
         Some(harness) => edits.push(set_path(
             scoped_segments(profile, &["harness"]),
             json!(harness),
@@ -286,6 +281,7 @@ mod tests {
             None,
             Some("claude-sonnet"),
             None,
+            Some("claude-code"),
         );
 
         assert_eq!(
@@ -304,7 +300,7 @@ mod tests {
     #[test]
     fn provider_model_selection_clears_harness_for_non_anthropic_provider() {
         let edits =
-            provider_model_selection_edits(Some("work"), "openai", None, Some("gpt-5"), None);
+            provider_model_selection_edits(Some("work"), "openai", None, Some("gpt-5"), None, None);
 
         assert_eq!(
             edits[1],
@@ -324,6 +320,7 @@ mod tests {
             None,
             Some("deepseek-chat"),
             None,
+            Some("deepseek-tui"),
         );
 
         assert_eq!(
@@ -366,6 +363,7 @@ mod tests {
             Some(&provider),
             Some("claude-sonnet"),
             None,
+            Some("claude-code"),
         );
 
         assert_eq!(
@@ -401,6 +399,7 @@ mod tests {
             Some(&provider),
             Some("claude-sonnet"),
             None,
+            Some("claude-code"),
         );
 
         assert_eq!(
@@ -436,6 +435,7 @@ mod tests {
             Some(&provider),
             Some("k2p5"),
             None,
+            Some("kimi-cli"),
         );
 
         assert_eq!(
@@ -471,6 +471,7 @@ mod tests {
             Some(&provider),
             Some("kimi-k2.5"),
             None,
+            Some("kimi-cli"),
         );
 
         assert_eq!(
@@ -512,6 +513,7 @@ mod tests {
                 Some(&provider),
                 Some(model),
                 None,
+                Some(harness),
             );
 
             assert_eq!(

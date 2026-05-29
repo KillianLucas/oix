@@ -1,101 +1,242 @@
 ---
-title: Providers and models
-description: Pick the model that fits the task, from any provider.
+title: Providers
+description: Supported provider ids, wire APIs, auth modes, and catalog generation.
 ---
 
-Open Interpreter is provider agnostic. The provider you choose decides
-which models are available and where the bill goes. You can mix providers
-across sessions and even switch mid-conversation.
+Open Interpreter separates the provider from the model. The active provider
+decides where requests are sent, how credentials are attached, which wire API
+is used, and which bundled model metadata seeds the picker.
 
-## Built-in providers
+The source of truth is code, not this table:
 
-| Provider   | What it gives you                                           |
-| ---------- | ----------------------------------------------------------- |
-| OpenAI     | GPT-5 family including the Codex variants. Default pick.    |
-| Anthropic  | Claude family. Strong at long-running, careful work.        |
-| Ollama     | Local models, fully offline. Discovers what you installed.  |
-| LM Studio  | Local server with a friendly GUI for model management.      |
+- Built-in runtime providers: `codex-rs/model-provider-info/src/lib.rs`
+- Generated hosted-provider catalog:
+  `codex-rs/model-provider-info/provider_catalog.json`
+- Hosted-provider generator inputs:
+  `codex-rs/scripts/write_provider_catalog.py` and
+  `codex-rs/model-provider-info/provider_catalog_overrides.json`
+- Model metadata: `codex-rs/codex-api/model_compatibility_catalog.json`
+  and `codex-rs/models-manager/src/provider_catalog_models.rs`
 
-## Add a custom provider
+## Built-In Runtime Providers
 
-Anything OpenAI-compatible works. Pick "Add a custom provider" in the
-onboarding picker, or add it to `config.toml` directly:
+These providers exist even before the generated hosted-provider catalog is
+consulted.
+
+| Provider ID | Name | Wire API | Auth |
+| --- | --- | --- | --- |
+| `openai` | OpenAI | `responses` | ChatGPT sign-in or OpenAI auth manager |
+| `amazon-bedrock` | Amazon Bedrock | `responses` | AWS SigV4 via `model_providers.amazon-bedrock.aws` |
+| `ollama` | Ollama local OSS | `responses` | none |
+| `lmstudio` | LM Studio local OSS | `responses` | none |
+
+OpenAI also has an onboarding preset named `openai_api_key`. That preset writes
+an OpenAI-compatible provider using `OPENAI_API_KEY`; it is a setup shortcut,
+not a separate built-in provider id in the runtime provider map.
+
+## Wire APIs
+
+`wire_api` controls the HTTP request shape.
+
+| Value | Transport | Used by |
+| --- | --- | --- |
+| `responses` | OpenAI Responses API style requests | OpenAI, Bedrock, Ollama, LM Studio, custom Responses-compatible providers |
+| `chat` | OpenAI-compatible Chat Completions requests | Most generated hosted providers and chat harnesses |
+| `messages` | Anthropic Messages requests | Anthropic-style providers and Claude Code harness mode |
+
+For custom providers:
 
 ```toml
-[model_providers.together]
-name = "Together"
-base_url = "https://api.together.xyz/v1"
-env_key = "TOGETHER_API_KEY"
-wire_api = "openai"
-
-[profiles.together-llama]
-model_provider = "together"
-model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+[model_providers.example]
+name = "Example"
+base_url = "https://api.example.com/v1"
+env_key = "EXAMPLE_API_KEY"
+wire_api = "chat"
 ```
 
-Then:
+Use `wire_api = "responses"` for OpenAI Responses-compatible providers,
+`wire_api = "chat"` for OpenAI-compatible chat-completions providers, and
+`wire_api = "messages"` only for Anthropic Messages-compatible providers.
+
+## Authentication
+
+Provider auth can come from:
+
+- `env_key`, which reads a bearer token from an environment variable.
+- `experimental_bearer_token`, when embedding a token is unavoidable.
+- command-backed `auth`, which runs a local command and caches the returned
+  bearer token.
+- `aws`, only for `amazon-bedrock`.
+- OpenAI auth manager state for providers that set `requires_openai_auth`.
+
+Anthropic-style API-key auth uses the `x-api-key` header and automatically adds
+`anthropic-version: 2023-06-01`. Other API-key providers use
+`Authorization: Bearer ...`.
+
+Command-backed auth example:
+
+```toml
+[model_providers.example.auth]
+command = "example-token"
+args = ["print"]
+timeout_ms = 5000
+refresh_interval_ms = 300000
+```
+
+## Generated Hosted Providers
+
+The generated catalog is built from `https://models.dev/api.json` plus the live
+Moonshot model list at `https://api.moonshot.ai/v1/models`. The generator
+includes providers backed by supported AI SDK packages, excludes unsupported or
+local-only entries, requires a usable base URL, and keeps only models that
+advertise tool calling and text output.
+
+The current bundled generated catalog contains these providers:
+
+| Provider ID | Name | Wire API | Auth env | Models |
+| --- | --- | --- | --- | ---: |
+| `anthropic` | Anthropic | `messages` | `ANTHROPIC_API_KEY` | 23 |
+| `openrouter` | OpenRouter | `chat` | `OPENROUTER_API_KEY` | 264 |
+| `groq` | Groq | `chat` | `GROQ_API_KEY` | 18 |
+| `github-models` | GitHub Models | `chat` | `GITHUB_TOKEN` | 49 |
+| `opencode` | OpenCode Zen | `chat` | `OPENCODE_API_KEY` | 61 |
+| `opencode-go` | OpenCode Go | `chat` | `OPENCODE_API_KEY` | 14 |
+| `github-copilot` | GitHub Copilot | `chat` | `GITHUB_TOKEN` | 26 |
+| `poe` | Poe | `chat` | `POE_API_KEY` | 102 |
+| `perplexity-agent` | Perplexity Agent | `chat` | `PERPLEXITY_API_KEY` | 18 |
+| `requesty` | Requesty | `chat` | `REQUESTY_API_KEY` | 37 |
+| `deepseek` | DeepSeek | `chat` | `DEEPSEEK_API_KEY` | 4 |
+| `moonshotai` | Moonshot AI | `chat` | `MOONSHOT_API_KEY` | 14 |
+| `moonshotai-cn` | Moonshot AI (China) | `chat` | `MOONSHOT_API_KEY` | 7 |
+| `zhipuai` | Zhipu AI | `chat` | `ZHIPU_API_KEY` | 12 |
+| `zai` | Z.AI | `chat` | `ZHIPU_API_KEY` | 13 |
+| `siliconflow` | SiliconFlow | `chat` | `SILICONFLOW_API_KEY` | 76 |
+| `siliconflow-cn` | SiliconFlow (China) | `chat` | `SILICONFLOW_CN_API_KEY` | 77 |
+| `alibaba` | Alibaba | `chat` | `DASHSCOPE_API_KEY` | 43 |
+| `alibaba-cn` | Alibaba (China) | `chat` | `DASHSCOPE_API_KEY` | 75 |
+| `stepfun` | StepFun | `chat` | `STEPFUN_API_KEY` | 4 |
+| `modelscope` | ModelScope | `chat` | `MODELSCOPE_API_KEY` | 7 |
+| `qiniu-ai` | Qiniu | `chat` | `QINIU_API_KEY` | 81 |
+| `jiekou` | Jiekou.AI | `chat` | `JIEKOU_API_KEY` | 58 |
+| `302ai` | 302.AI | `chat` | `302AI_API_KEY` | 92 |
+| `novita-ai` | NovitaAI | `chat` | `NOVITA_API_KEY` | 64 |
+| `fireworks-ai` | Fireworks AI | `chat` | `FIREWORKS_API_KEY` | 20 |
+| `nvidia` | Nvidia | `chat` | `NVIDIA_API_KEY` | 52 |
+| `huggingface` | Hugging Face | `chat` | `HF_TOKEN` | 22 |
+| `chutes` | Chutes | `chat` | `CHUTES_API_KEY` | 30 |
+| `ollama-cloud` | Ollama Cloud | `chat` | `OLLAMA_API_KEY` | 36 |
+| `llama` | Llama | `chat` | `LLAMA_API_KEY` | 7 |
+| `upstage` | Upstage | `chat` | `UPSTAGE_API_KEY` | 3 |
+| `nova` | Nova | `chat` | `NOVA_API_KEY` | 2 |
+| `xiaomi` | Xiaomi | `chat` | `XIAOMI_API_KEY` | 5 |
+| `abacus` | Abacus | `chat` | `ABACUS_API_KEY` | 65 |
+| `abliteration-ai` | abliteration.ai | `chat` | `ABLIT_KEY` | 1 |
+| `alibaba-coding-plan` | Alibaba Coding Plan | `chat` | `ALIBABA_CODING_PLAN_API_KEY` | 9 |
+| `alibaba-coding-plan-cn` | Alibaba Coding Plan (China) | `chat` | `ALIBABA_CODING_PLAN_API_KEY` | 9 |
+| `ambient` | Ambient | `chat` | `AMBIENT_API_KEY` | 2 |
+| `auriko` | Auriko | `chat` | `AURIKO_API_KEY` | 15 |
+| `bailing` | Bailing | `chat` | `BAILING_API_TOKEN` | 1 |
+| `baseten` | Baseten | `chat` | `BASETEN_API_KEY` | 14 |
+| `berget` | Berget.AI | `chat` | `BERGET_API_KEY` | 7 |
+| `clarifai` | Clarifai | `chat` | `CLARIFAI_PAT` | 10 |
+| `claudinio` | Claudinio | `chat` | `CLAUDINIO_API_KEY` | 1 |
+| `cloudferro-sherlock` | CloudFerro Sherlock | `chat` | `CLOUDFERRO_SHERLOCK_API_KEY` | 5 |
+| `cortecs` | Cortecs | `chat` | `CORTECS_API_KEY` | 48 |
+| `drun` | D.Run (China) | `chat` | `DRUN_API_KEY` | 3 |
+| `digitalocean` | DigitalOcean | `chat` | `DIGITALOCEAN_ACCESS_TOKEN` | 59 |
+| `dinference` | DInference | `chat` | `DINFERENCE_API_KEY` | 5 |
+| `evroc` | evroc | `chat` | `EVROC_API_KEY` | 5 |
+| `fastrouter` | FastRouter | `chat` | `FASTROUTER_API_KEY` | 14 |
+| `firepass` | Fireworks (Firepass) | `chat` | `FIREPASS_API_KEY` | 1 |
+| `friendli` | Friendli | `chat` | `FRIENDLI_TOKEN` | 6 |
+| `frogbot` | FrogBot | `chat` | `FROGBOT_API_KEY` | 26 |
+| `gmicloud` | GMI Cloud | `chat` | `GMICLOUD_API_KEY` | 8 |
+| `helicone` | Helicone | `chat` | `HELICONE_API_KEY` | 71 |
+| `hpc-ai` | HPC-AI | `chat` | `HPC_AI_API_KEY` | 3 |
+| `iflowcn` | iFlow | `chat` | `IFLOW_API_KEY` | 14 |
+| `inception` | Inception | `chat` | `INCEPTION_API_KEY` | 1 |
+| `inference` | Inference | `chat` | `INFERENCE_API_KEY` | 8 |
+| `io-net` | IO.NET | `chat` | `IOINTELLIGENCE_API_KEY` | 17 |
+| `kilo` | Kilo Gateway | `chat` | `KILO_API_KEY` | 258 |
+| `kimi-for-coding` | Kimi For Coding | `chat` | `KIMI_API_KEY` | 3 |
+| `kuae-cloud-coding-plan` | KUAE Cloud Coding Plan | `chat` | `KUAE_API_KEY` | 1 |
+| `lilac` | Lilac | `chat` | `LILAC_API_KEY` | 4 |
+| `llmgateway` | LLM Gateway | `chat` | `LLMGATEWAY_API_KEY` | 156 |
+| `lucidquery` | LucidQuery AI | `chat` | `LUCIDQUERY_API_KEY` | 2 |
+| `meganova` | Meganova | `chat` | `MEGANOVA_API_KEY` | 18 |
+| `minimax` | MiniMax (minimax.io) | `messages` | `MINIMAX_API_KEY` | 6 |
+| `minimax-cn` | MiniMax (minimaxi.com) | `messages` | `MINIMAX_API_KEY` | 6 |
+| `minimax-coding-plan` | MiniMax Token Plan (minimax.io) | `messages` | `MINIMAX_API_KEY` | 6 |
+| `minimax-cn-coding-plan` | MiniMax Token Plan (minimaxi.com) | `messages` | `MINIMAX_API_KEY` | 6 |
+| `mixlayer` | Mixlayer | `chat` | `MIXLAYER_API_KEY` | 5 |
+| `moark` | Moark | `chat` | `MOARK_API_KEY` | 2 |
+| `nano-gpt` | NanoGPT | `chat` | `NANO_GPT_API_KEY` | 105 |
+| `nearai` | NEAR AI Cloud | `chat` | `NEARAI_API_KEY` | 29 |
+| `nebius` | Nebius Token Factory | `chat` | `NEBIUS_API_KEY` | 29 |
+| `neuralwatt` | Neuralwatt | `chat` | `NEURALWATT_API_KEY` | 14 |
+| `orcarouter` | OrcaRouter | `chat` | `ORCAROUTER_API_KEY` | 79 |
+| `ovhcloud` | OVHcloud AI Endpoints | `chat` | `OVHCLOUD_API_KEY` | 10 |
+| `qihang-ai` | QiHang | `chat` | `QIHANG_API_KEY` | 9 |
+| `regolo-ai` | Regolo AI | `chat` | `REGOLO_API_KEY` | 10 |
+| `routing-run` | routing.run | `chat` | `ROUTING_RUN_API_KEY` | 24 |
+| `sarvam` | Sarvam AI | `chat` | `SARVAM_API_KEY` | 2 |
+| `scaleway` | Scaleway | `chat` | `SCALEWAY_API_KEY` | 14 |
+| `stackit` | STACKIT | `chat` | `STACKIT_API_KEY` | 5 |
+| `submodel` | submodel | `chat` | `SUBMODEL_INSTAGEN_ACCESS_KEY` | 9 |
+| `synthetic` | Synthetic | `chat` | `SYNTHETIC_API_KEY` | 32 |
+| `tencent-coding-plan` | Tencent Coding Plan (China) | `chat` | `TENCENT_CODING_PLAN_API_KEY` | 8 |
+| `tencent-tokenhub` | Tencent TokenHub | `chat` | `TENCENT_TOKENHUB_API_KEY` | 1 |
+| `the-grid-ai` | The Grid AI | `chat` | `THEGRIDAI_API_KEY` | 9 |
+| `umans-ai-coding-plan` | Umans AI Coding Plan | `chat` | `UMANS_AI_CODING_PLAN_API_KEY` | 5 |
+| `vivgrid` | Vivgrid | `chat` | `VIVGRID_API_KEY` | 13 |
+| `vultr` | Vultr | `chat` | `VULTR_API_KEY` | 5 |
+| `wafer.ai` | Wafer | `chat` | `WAFER_API_KEY` | 2 |
+| `wandb` | Weights & Biases | `chat` | `WANDB_API_KEY` | 18 |
+| `xiaomi-token-plan-cn` | Xiaomi Token Plan (China) | `chat` | `XIAOMI_API_KEY` | 5 |
+| `xiaomi-token-plan-ams` | Xiaomi Token Plan (Europe) | `chat` | `XIAOMI_API_KEY` | 5 |
+| `xiaomi-token-plan-sgp` | Xiaomi Token Plan (Singapore) | `chat` | `XIAOMI_API_KEY` | 5 |
+| `xpersona` | Xpersona | `chat` | `XPERSONA_API_KEY` | 1 |
+| `zai-coding-plan` | Z.AI Coding Plan | `chat` | `ZHIPU_API_KEY` | 5 |
+| `zenmux` | ZenMux | `chat` | `ZENMUX_API_KEY` | 96 |
+| `zhipuai-coding-plan` | Zhipu AI Coding Plan | `chat` | `ZHIPU_API_KEY` | 5 |
+
+## Model Picker Behavior
+
+The picker uses provider metadata in two passes:
+
+1. It asks the active provider's `/models` endpoint when possible.
+2. It seeds or supplements results from the bundled provider catalog when the
+   provider matches by Anthropic identity, base URL, provider name, or auth env
+   var.
+
+Generated model entries carry display name, description, context window,
+reasoning control, input modalities, and priority. The generator does not
+invent reasoning levels from a boolean reasoning flag; those controls come
+from compatibility metadata or explicit overrides.
+
+## Default Harness Selection
+
+When no harness is explicitly configured, Open Interpreter may choose a native
+harness mode from the provider/model family:
+
+| Match | Default harness |
+| --- | --- |
+| `wire_api = "messages"`, Anthropic provider/name/base URL, or `claude` model ids | `claude-code` |
+| `kimi`, `moonshot`, `api.kimi.com`, `api.moonshot.ai`, or `api.moonshot.cn` | `kimi-cli` |
+| `qwen`, `qwq`, `dashscope`, or DashScope compatible-mode base URLs | `qwen-code` |
+| `deepseek` or `api.deepseek.com` | `deepseek-tui` |
+
+You can override this with `harness = "..."` in config. See
+[Harness](/docs/harness) for route compatibility.
+
+## Regenerating The Catalog
+
+Run this from `codex-rs` when provider source data changes:
 
 ```bash
-interpreter --profile together-llama
+python3 scripts/write_provider_catalog.py
+python3 scripts/write_model_compatibility_catalog.py
 ```
 
-## Switch from inside a session
-
-```
-/model
-```
-
-Pick a different provider, model, or reasoning effort. The current model
-shows in the footer.
-
-For the fastest responses on a supported model:
-
-```
-/fast
-```
-
-## Reasoning effort
-
-Open Interpreter exposes a reasoning dial for models that support it.
-
-| Level    | When to use                                       |
-| -------- | ------------------------------------------------- |
-| `none`   | Quick edits, simple lookups                       |
-| `low`    | Routine work where speed matters                  |
-| `medium` | Default. Balanced for everyday use                |
-| `high`   | Tricky bugs, complex refactors, long-form review  |
-
-Set it as a default in `config.toml`:
-
-```toml
-model_reasoning_effort = "medium"
-```
-
-Or change it in the `/model` picker.
-
-## Local models
-
-Local models keep everything on your machine. Useful for sensitive code
-and for working offline.
-
-<Steps>
-  <Step title="Install a runner">
-    Grab [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/).
-  </Step>
-  <Step title="Pull a model">
-    For Ollama:
-    ```bash
-    ollama pull qwen2.5-coder:14b
-    ```
-  </Step>
-  <Step title="Pick it in Open Interpreter">
-    Run `/model` and choose the local provider. Open Interpreter
-    discovers what is installed.
-  </Step>
-</Steps>
-
-<Tip>
-Smaller local models work well for in-context edits and review. Reach
-for a frontier model when you need long-horizon planning or careful
-debugging.
-</Tip>
+The Moonshot live source requires `MOONSHOT_API_KEY` or `KIMI_API_KEY`. Missing
+auth is a generator failure, not a reason to silently keep stale data.

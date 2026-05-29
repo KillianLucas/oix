@@ -3,6 +3,8 @@ use crate::session::TurnContext;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::claude_code::effective_turn_file_system_policy;
+use crate::tools::handlers::claude_code::ensure_readable_path;
 use crate::tools::handlers::claude_code_search::resolve_search_root;
 use crate::tools::handlers::claude_code_search::run_rg_command;
 use crate::tools::handlers::parse_kimi_arguments;
@@ -163,6 +165,9 @@ impl ToolHandler for KimiGlobHandler {
         } else {
             message
         };
+        if turn.tools_config.harness.is_kimi_code() {
+            return Ok(FunctionToolOutput::from_text(output, Some(true)));
+        }
         Ok(FunctionToolOutput::from_content(
             vec![
                 FunctionCallOutputContentItem::InputText {
@@ -232,9 +237,16 @@ impl ToolHandler for KimiGrepHandler {
         };
         let args: KimiGrepArgs = parse_kimi_arguments(&arguments)?;
         let raw_search_path = args.path.clone();
-        let search_root =
-            resolve_search_root(session.as_ref(), turn.as_ref(), raw_search_path.as_deref())
-                .await?;
+        let search_root = if turn.tools_config.harness.is_kimi_code() {
+            resolve_kimi_code_search_root(
+                session.as_ref(),
+                turn.as_ref(),
+                raw_search_path.as_deref(),
+            )
+            .await?
+        } else {
+            resolve_search_root(session.as_ref(), turn.as_ref(), raw_search_path.as_deref()).await?
+        };
         let output_mode = args
             .output_mode
             .unwrap_or(KimiGrepOutputMode::FilesWithMatches);
@@ -345,6 +357,27 @@ impl ToolHandler for KimiGrepHandler {
     }
 }
 
+async fn resolve_kimi_code_search_root(
+    session: &crate::session::Session,
+    turn: &TurnContext,
+    path: Option<&str>,
+) -> Result<AbsolutePathBuf, FunctionCallError> {
+    let root = match path {
+        Some(path) if Path::new(path).is_absolute() => {
+            AbsolutePathBuf::try_from(PathBuf::from(path)).map_err(|err| {
+                FunctionCallError::RespondToModel(format!("invalid path `{path}`: {err}"))
+            })?
+        }
+        Some(path) => AbsolutePathBuf::try_from(turn.cwd.as_path().join(path)).map_err(|err| {
+            FunctionCallError::RespondToModel(format!("invalid path `{path}`: {err}"))
+        })?,
+        None => turn.cwd.clone(),
+    };
+    let file_system_policy = effective_turn_file_system_policy(session, turn).await;
+    ensure_readable_path(&file_system_policy, turn, &root)?;
+    Ok(root)
+}
+
 fn truncate_kimi_grep_output(output: &str) -> (String, bool) {
     let mut truncated = false;
     let mut kept = String::new();
@@ -451,6 +484,16 @@ fn format_kimi_grep_line(raw_search_root: Option<&str>, search_root: &Path, line
     };
     let path = Path::new(path);
     if !path.is_absolute() {
+        if raw_search_root.is_some_and(|root| root == ".")
+            && let Some(stripped) = path.strip_prefix(".").ok()
+        {
+            let relative_path = stripped.display();
+            return if suffix.is_empty() {
+                relative_path.to_string()
+            } else {
+                format!("{relative_path}{suffix}")
+            };
+        }
         return line.to_string();
     }
     let Ok(relative) = path.strip_prefix(search_root) else {

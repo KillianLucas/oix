@@ -83,7 +83,10 @@ pub(super) enum KimiWriteMode {
 pub(super) struct KimiStrReplaceFileArgs {
     #[serde(alias = "file_path")]
     path: String,
-    edit: KimiEditArg,
+    edit: Option<KimiEditArg>,
+    old_string: Option<String>,
+    new_string: Option<String>,
+    replace_all: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -226,6 +229,14 @@ impl ToolHandler for KimiReadFileHandler {
         let content = tokio::fs::read_to_string(path.as_path())
             .await
             .map_err(|err| FunctionCallError::RespondToModel(format!("ReadFile failed: {err}")))?;
+        if turn.tools_config.harness.is_kimi_code() {
+            let output = format_kimi_code_read_output(
+                &content,
+                args.line_offset.unwrap_or(1),
+                args.n_lines.unwrap_or(1000),
+            );
+            return Ok(FunctionToolOutput::from_text(output, Some(true)));
+        }
         let output = format_kimi_read_output(
             &content,
             args.line_offset.unwrap_or(1),
@@ -243,6 +254,39 @@ impl ToolHandler for KimiReadFileHandler {
     }
 }
 
+pub(super) fn format_kimi_code_read_output(
+    content: &str,
+    line_offset: isize,
+    n_lines: usize,
+) -> String {
+    let all_lines = content.split_inclusive('\n').collect::<Vec<_>>();
+    let total = all_lines.len();
+    let start = if line_offset < 0 {
+        total.saturating_sub(line_offset.unsigned_abs())
+    } else {
+        usize::try_from(line_offset.saturating_sub(1)).unwrap_or(0)
+    };
+    let n_lines = n_lines.max(1);
+    let mut body = String::new();
+    let mut lines_read = 0usize;
+    for (index, line) in all_lines.into_iter().enumerate().skip(start).take(n_lines) {
+        body.push_str(&format!("{}\t{line}", index + 1));
+        lines_read += 1;
+    }
+    let start_line = start.saturating_add(1);
+    let line_word = if lines_read == 1 { "line" } else { "lines" };
+    let mut message =
+        format!("{lines_read} {line_word} read from file starting from line {start_line}.");
+    message.push_str(&format!(" Total lines in file: {total}."));
+    if lines_read < n_lines {
+        message.push_str(" End of file reached.");
+    }
+    if !body.is_empty() && !body.ends_with('\n') {
+        body.push('\n');
+    }
+    format!("{body}<system>{message}</system>")
+}
+
 impl ToolHandler for KimiWriteFileHandler {
     type Output = FunctionToolOutput;
 
@@ -258,6 +302,7 @@ impl ToolHandler for KimiWriteFileHandler {
         let ToolInvocation {
             session,
             turn,
+            tool_name,
             payload,
             ..
         } = invocation;
@@ -305,12 +350,14 @@ impl ToolHandler for KimiWriteFileHandler {
             KimiWriteMode::Overwrite => "overwritten",
             KimiWriteMode::Append => "appended to",
         };
-        Ok(FunctionToolOutput::from_text(
+        let output = if tool_name.display() == "Write" {
+            format!("Wrote {size_bytes} bytes to {}", args.path)
+        } else {
             format!(
                 "<system>File successfully {action}. Current size: {size_bytes} bytes.</system>"
-            ),
-            Some(true),
-        ))
+            )
+        };
+        Ok(FunctionToolOutput::from_text(output, Some(true)))
     }
 }
 
@@ -329,6 +376,7 @@ impl ToolHandler for KimiStrReplaceFileHandler {
         let ToolInvocation {
             session,
             turn,
+            tool_name,
             payload,
             ..
         } = invocation;
@@ -348,7 +396,19 @@ impl ToolHandler for KimiStrReplaceFileHandler {
             .map_err(|err| {
                 FunctionCallError::RespondToModel(format!("StrReplaceFile failed: {err}"))
             })?;
-        let edits = match args.edit {
+        let edit_arg = args.edit.or_else(|| {
+            Some(KimiEditArg::Single(KimiEdit {
+                old: args.old_string?,
+                new: args.new_string.unwrap_or_default(),
+                replace_all: args.replace_all,
+            }))
+        });
+        let Some(edit_arg) = edit_arg else {
+            return Err(FunctionCallError::RespondToModel(
+                "Edit failed: missing edit or old_string/new_string".to_string(),
+            ));
+        };
+        let edits = match edit_arg {
             KimiEditArg::Single(edit) => vec![edit],
             KimiEditArg::Multiple(edits) => edits,
         };
@@ -369,13 +429,15 @@ impl ToolHandler for KimiStrReplaceFileHandler {
             .map_err(|err| {
                 FunctionCallError::RespondToModel(format!("StrReplaceFile failed: {err}"))
             })?;
-        Ok(FunctionToolOutput::from_text(
+        let output = if tool_name.display() == "Edit" {
+            format!("Replaced {total_replacements} occurrence in {}", args.path)
+        } else {
             format!(
                 "<system>File successfully edited. Applied {} edit(s) with {total_replacements} total replacement(s).</system>",
                 edits.len()
-            ),
-            Some(true),
-        ))
+            )
+        };
+        Ok(FunctionToolOutput::from_text(output, Some(true)))
     }
 }
 

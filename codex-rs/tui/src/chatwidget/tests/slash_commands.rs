@@ -1211,6 +1211,34 @@ async fn unavailable_slash_command_is_available_from_local_recall() {
 }
 
 #[tokio::test]
+async fn harness_slash_command_opens_current_harness_picker() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("anthropic/claude-sonnet-4.6")).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.config.model_provider_id = "openrouter".to_string();
+    chat.config.model_provider = codex_model_provider_info::ModelProviderInfo {
+        name: "OpenRouter".to_string(),
+        base_url: Some("https://openrouter.ai/api/v1".to_string()),
+        wire_api: codex_model_provider_info::WireApi::Chat,
+        ..Default::default()
+    };
+    chat.config
+        .model_providers
+        .insert("openrouter".to_string(), chat.config.model_provider.clone());
+
+    chat.dispatch_command(SlashCommand::Harness);
+
+    let popup = render_bottom_popup(&chat, /*width*/ 80);
+    assert!(
+        popup.contains("Select Tool Harness"),
+        "expected harness picker to open; popup:\n{popup}"
+    );
+    assert!(
+        popup.contains("Claude Code (recommended)"),
+        "expected compatible harnesses; popup:\n{popup}"
+    );
+}
+
+#[tokio::test]
 async fn no_op_stub_slash_command_is_available_from_local_recall() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

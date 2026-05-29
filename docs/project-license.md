@@ -1,5 +1,5 @@
 ---
-title: License
+title: Project License
 description: Open Interpreter is released under the Apache-2.0 license.
 ---
 

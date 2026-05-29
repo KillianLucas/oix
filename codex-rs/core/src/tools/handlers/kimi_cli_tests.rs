@@ -1,6 +1,7 @@
 use super::KimiEdit;
 use super::KimiSetTodoListHandler;
 use super::apply_kimi_edit;
+use super::format_kimi_code_read_output;
 use super::format_kimi_read_output;
 use crate::session::tests::make_session_and_context;
 use crate::session::turn_context::TurnContext;
@@ -60,6 +61,15 @@ fn format_kimi_read_output_reports_eof_when_less_than_requested() {
     assert_eq!(
         output.system_message,
         "<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>"
+    );
+}
+
+#[test]
+fn format_kimi_code_read_output_avoids_extra_blank_before_system_footer() {
+    let output = format_kimi_code_read_output("alpha\nbeta\n", 1, 1000);
+    assert_eq!(
+        output,
+        "1\talpha\n2\tbeta\n<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>"
     );
 }
 

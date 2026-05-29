@@ -1,0 +1,363 @@
+use crate::exec::ExecCapturePolicy;
+use crate::exec::ExecParams;
+use crate::exec_env::create_env;
+use crate::exec_policy::ExecApprovalRequest;
+use crate::function_tool::FunctionCallError;
+use crate::tools::context::FunctionToolOutput;
+use crate::tools::context::ToolInvocation;
+use crate::tools::context::ToolPayload;
+use crate::tools::events::ToolEmitter;
+use crate::tools::events::ToolEventCtx;
+use crate::tools::events::ToolEventFailure;
+use crate::tools::events::ToolEventStage;
+use crate::tools::handlers::apply_granted_turn_permissions;
+use crate::tools::handlers::parse_arguments;
+use crate::tools::orchestrator::ToolOrchestrator;
+use crate::tools::registry::ToolHandler;
+use crate::tools::registry::ToolKind;
+use crate::tools::runtimes::shell::ShellRequest;
+use crate::tools::runtimes::shell::ShellRuntime;
+use crate::tools::runtimes::shell::ShellRuntimeBackend;
+use crate::tools::sandboxing::ToolError;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::SandboxErr;
+use codex_protocol::models::FunctionCallOutputContentItem;
+use codex_protocol::models::SandboxPermissions;
+use codex_protocol::protocol::ExecCommandSource;
+use serde::Deserialize;
+use serde::Serialize;
+use serde_json::Value as JsonValue;
+
+pub struct MiniSweAgentBashHandler;
+
+const MINI_SWE_AGENT_BASH_TIMEOUT_MS: u64 = 30_000;
+const MINI_SWE_AGENT_OUTPUT_HEAD_CHARS: usize = 5_000;
+const MINI_SWE_AGENT_OUTPUT_TAIL_CHARS: usize = 5_000;
+
+#[derive(Deserialize)]
+struct MiniSweAgentBashArgs {
+    command: String,
+}
+
+#[derive(Serialize)]
+struct MiniSweAgentOutput {
+    returncode: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_head: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_tail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    elided_chars: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exception_info: Option<String>,
+}
+
+impl ToolHandler for MiniSweAgentBashHandler {
+    type Output = FunctionToolOutput;
+
+    fn kind(&self) -> ToolKind {
+        ToolKind::Function
+    }
+
+    async fn is_mutating(&self, _invocation: &ToolInvocation) -> bool {
+        true
+    }
+
+    async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
+        let ToolInvocation {
+            session,
+            turn,
+            call_id,
+            tool_name,
+            payload,
+            ..
+        } = invocation;
+        let ToolPayload::Function { arguments } = payload else {
+            return Err(FunctionCallError::RespondToModel(
+                "bash received unsupported payload".to_string(),
+            ));
+        };
+        let args: MiniSweAgentBashArgs = parse_arguments(&arguments)?;
+        let Some(_environment) = turn.environment.as_ref() else {
+            return Err(FunctionCallError::RespondToModel(
+                "bash is unavailable in this session".to_string(),
+            ));
+        };
+
+        let command = session
+            .user_shell()
+            .derive_exec_args(&args.command, turn.tools_config.allow_login_shell);
+        let env = create_env(
+            &turn.shell_environment_policy,
+            Some(session.conversation_id),
+        );
+        let exec_params = ExecParams {
+            command: command.clone(),
+            cwd: turn.cwd.clone(),
+            expiration: Some(MINI_SWE_AGENT_BASH_TIMEOUT_MS).into(),
+            capture_policy: ExecCapturePolicy::ShellTool,
+            env,
+            network: turn.network.clone(),
+            sandbox_permissions: SandboxPermissions::UseDefault,
+            windows_sandbox_level: turn.windows_sandbox_level,
+            windows_sandbox_private_desktop: turn
+                .config
+                .permissions
+                .windows_sandbox_private_desktop,
+            justification: None,
+            arg0: None,
+        };
+        let emitter = ToolEmitter::shell(
+            exec_params.command.clone(),
+            exec_params.cwd.clone(),
+            ExecCommandSource::Agent,
+            /*freeform*/ false,
+        );
+        let event_ctx = ToolEventCtx::new(
+            session.as_ref(),
+            turn.as_ref(),
+            &call_id,
+            /*turn_diff_tracker*/ None,
+        );
+        emitter.begin(event_ctx).await;
+        let effective_permissions = apply_granted_turn_permissions(
+            session.as_ref(),
+            turn.cwd.as_path(),
+            SandboxPermissions::UseDefault,
+            None,
+        )
+        .await;
+        let exec_approval_requirement = session
+            .services
+            .exec_policy
+            .create_exec_approval_requirement_for_command(ExecApprovalRequest {
+                command: &exec_params.command,
+                approval_policy: turn.approval_policy.value(),
+                sandbox_policy: turn.sandbox_policy.get(),
+                file_system_sandbox_policy: &turn.file_system_sandbox_policy,
+                sandbox_permissions: if effective_permissions.permissions_preapproved {
+                    SandboxPermissions::UseDefault
+                } else {
+                    effective_permissions.sandbox_permissions
+                },
+                prefix_rule: None,
+            })
+            .await;
+        let request = ShellRequest {
+            command: exec_params.command.clone(),
+            hook_command: codex_shell_command::parse_command::shlex_join(&exec_params.command),
+            cwd: exec_params.cwd.clone(),
+            timeout_ms: Some(MINI_SWE_AGENT_BASH_TIMEOUT_MS),
+            capture_policy: exec_params.capture_policy,
+            env: exec_params.env.clone(),
+            explicit_env_overrides: turn.shell_environment_policy.r#set.clone(),
+            network: exec_params.network.clone(),
+            sandbox_permissions: effective_permissions.sandbox_permissions,
+            additional_permissions: None,
+            #[cfg(unix)]
+            additional_permissions_preapproved: effective_permissions.permissions_preapproved,
+            justification: exec_params.justification.clone(),
+            exec_approval_requirement,
+        };
+
+        let mut orchestrator = ToolOrchestrator::new();
+        let mut runtime = ShellRuntime::for_shell_command(ShellRuntimeBackend::ShellCommandClassic);
+        let tool_ctx = crate::tools::sandboxing::ToolCtx {
+            session: session.clone(),
+            turn: turn.clone(),
+            call_id: call_id.clone(),
+            tool_name: tool_name.display(),
+        };
+        let result = orchestrator
+            .run(
+                &mut runtime,
+                &request,
+                &tool_ctx,
+                &turn,
+                turn.approval_policy.value(),
+            )
+            .await
+            .map(|output| output.output);
+
+        let observation = match result {
+            Ok(output) => {
+                emitter
+                    .emit(event_ctx, ToolEventStage::Success(output.clone()))
+                    .await;
+                mini_swe_agent_output_text(
+                    output.exit_code,
+                    output.aggregated_output.text,
+                    /*exception_info*/ None,
+                )
+            }
+            Err(ToolError::Codex(CodexErr::Sandbox(SandboxErr::Timeout { output }))) => {
+                let output = *output;
+                emitter
+                    .emit(
+                        event_ctx,
+                        ToolEventStage::Failure(ToolEventFailure::Output(output.clone())),
+                    )
+                    .await;
+                mini_swe_agent_output_text(
+                    -1,
+                    output.aggregated_output.text,
+                    Some(format!(
+                        "An error occurred while executing the command: Command '{}' timed out after 30 seconds",
+                        args.command
+                    )),
+                )
+            }
+            Err(ToolError::Codex(CodexErr::Sandbox(SandboxErr::Denied { output, .. }))) => {
+                let output = *output;
+                emitter
+                    .emit(
+                        event_ctx,
+                        ToolEventStage::Failure(ToolEventFailure::Output(output.clone())),
+                    )
+                    .await;
+                mini_swe_agent_output_text(output.exit_code, output.aggregated_output.text, None)
+            }
+            Err(ToolError::Rejected(message)) => {
+                emitter
+                    .emit(
+                        event_ctx,
+                        ToolEventStage::Failure(ToolEventFailure::Rejected(message.clone())),
+                    )
+                    .await;
+                mini_swe_agent_json(MiniSweAgentOutput {
+                    returncode: 1,
+                    output: Some(message),
+                    output_head: None,
+                    output_tail: None,
+                    elided_chars: None,
+                    warning: None,
+                    exception_info: None,
+                })
+            }
+            Err(ToolError::Codex(err)) => {
+                let message = format!("execution error: {err:?}");
+                emitter
+                    .emit(
+                        event_ctx,
+                        ToolEventStage::Failure(ToolEventFailure::Message(message.clone())),
+                    )
+                    .await;
+                mini_swe_agent_json(MiniSweAgentOutput {
+                    returncode: 1,
+                    output: Some(message),
+                    output_head: None,
+                    output_tail: None,
+                    elided_chars: None,
+                    warning: None,
+                    exception_info: None,
+                })
+            }
+        };
+
+        Ok(FunctionToolOutput {
+            body: vec![FunctionCallOutputContentItem::InputText {
+                text: observation.clone(),
+            }],
+            success: Some(true),
+            post_tool_use_response: Some(JsonValue::String(observation)),
+        })
+    }
+}
+
+fn mini_swe_agent_output_text(
+    returncode: i32,
+    output: String,
+    exception_info: Option<String>,
+) -> String {
+    let mut response = if output.chars().count()
+        > MINI_SWE_AGENT_OUTPUT_HEAD_CHARS + MINI_SWE_AGENT_OUTPUT_TAIL_CHARS
+    {
+        let output_head = output
+            .chars()
+            .take(MINI_SWE_AGENT_OUTPUT_HEAD_CHARS)
+            .collect::<String>();
+        let output_tail = output
+            .chars()
+            .skip(output.chars().count() - MINI_SWE_AGENT_OUTPUT_TAIL_CHARS)
+            .collect::<String>();
+        MiniSweAgentOutput {
+            returncode,
+            output: None,
+            output_head: Some(output_head),
+            output_tail: Some(output_tail),
+            elided_chars: Some(
+                output.chars().count()
+                    - MINI_SWE_AGENT_OUTPUT_HEAD_CHARS
+                    - MINI_SWE_AGENT_OUTPUT_TAIL_CHARS,
+            ),
+            warning: Some("Output too long."),
+            exception_info: None,
+        }
+    } else {
+        MiniSweAgentOutput {
+            returncode,
+            output: Some(output),
+            output_head: None,
+            output_tail: None,
+            elided_chars: None,
+            warning: None,
+            exception_info: None,
+        }
+    };
+    response.exception_info = exception_info;
+    mini_swe_agent_json(response)
+}
+
+fn mini_swe_agent_json(output: MiniSweAgentOutput) -> String {
+    serde_json::to_string_pretty(&output)
+        .map(|json| {
+            json.replace('<', "\\u003c")
+                .replace('>', "\\u003e")
+                .replace('&', "\\u0026")
+                .replace('\'', "\\u0027")
+        })
+        .unwrap_or_else(|err| {
+            format!(
+                "{{\n  \"returncode\": 1,\n  \"output\": \"failed to serialize output: {err}\"\n}}"
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_output_uses_output_key() {
+        assert_eq!(
+            mini_swe_agent_output_text(0, "ok\n".to_string(), None),
+            "{\n  \"returncode\": 0,\n  \"output\": \"ok\\n\"\n}"
+        );
+    }
+
+    #[test]
+    fn long_output_uses_head_tail_shape() {
+        let output = "a".repeat(10_001);
+        let text = mini_swe_agent_output_text(0, output, None);
+        assert!(text.contains("\"output_head\""));
+        assert!(text.contains("\"output_tail\""));
+        assert!(text.contains("\"elided_chars\": 1"));
+        assert!(text.contains("\"warning\": \"Output too long.\""));
+    }
+
+    #[test]
+    fn output_escapes_angle_brackets() {
+        assert_eq!(
+            mini_swe_agent_output_text(
+                0,
+                "Author: Test <test@example.com> & doesn't fit\n".to_string(),
+                None
+            ),
+            "{\n  \"returncode\": 0,\n  \"output\": \"Author: Test \\u003ctest@example.com\\u003e \\u0026 doesn\\u0027t fit\\n\"\n}"
+        );
+    }
+}

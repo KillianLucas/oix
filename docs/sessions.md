@@ -1,62 +1,95 @@
 ---
 title: Sessions
-description: Resume earlier work, fork a conversation, and manage history.
+description: Resume, fork, rename, compact, and manage local conversation history.
 ---
 
-Every Open Interpreter conversation is recorded locally so you can pick up
-later. Sessions live under `~/.openinterpreter/` and stay on your machine.
+Open Interpreter stores conversations locally under `~/.openinterpreter/` so
+you can continue work later.
 
-## Resume the last session
+## Resume
+
+Resume the newest session for the current directory:
 
 ```bash
 interpreter resume --last
 ```
 
-You land back in the same conversation with the same files in context.
-
-## Pick from a list
+Open a picker:
 
 ```bash
 interpreter resume
 ```
 
-A picker shows recent sessions in the current directory. Add `--all` to
-see sessions from anywhere on your machine.
+Include sessions from other directories:
 
-## Fork a session
+```bash
+interpreter resume --all
+```
 
-Forking branches a conversation into a new thread. The original stays
-intact. Useful when you want to try a different approach without losing
-the existing one.
+Resume a known id:
+
+```bash
+interpreter resume <SESSION_ID>
+```
+
+## Fork
+
+Forking creates a new thread from an older session. The original stays intact.
 
 ```bash
 interpreter fork --last
+interpreter fork <SESSION_ID>
+interpreter fork --all
 ```
 
-Or pick from the list:
+Inside the TUI, use `/fork` or `/side`.
+
+## Exec Sessions
+
+Non-interactive sessions can also be resumed:
 
 ```bash
-interpreter fork
+interpreter exec resume --last "continue with the implementation"
 ```
 
-## Inside a session
+Use `--include-non-interactive` with interactive resume when you want exec
+sessions to appear in the picker.
 
-| Command   | What it does                                 |
-| --------- | -------------------------------------------- |
-| `/new`    | Start a fresh conversation in the same tab   |
-| `/fork`   | Fork the current conversation                |
-| `/resume` | Open the resume picker                       |
-| `/rename` | Rename the current thread                    |
-| `/clear`  | Clear the screen and start a fresh chat      |
-| `/compact`| Summarize old turns to free up context       |
+## Compact
 
-## Stop the daemon
+Long conversations can be compacted into a shorter summary:
 
-Open Interpreter runs a small local daemon so multiple tabs share state
-efficiently. To stop it:
+```text
+/compact
+```
+
+Automatic compaction can also run when the active model is near its context
+limit. Set `model_auto_compact_token_limit` in config if you need an explicit
+threshold.
+
+## History Controls
+
+Disable saved transcript history:
+
+```toml
+[history]
+persistence = "none"
+```
+
+Cap history size:
+
+```toml
+[history]
+max_bytes = 104857600
+```
+
+## Daemon
+
+The public `interpreter` launcher starts a local app-server-backed runtime for
+interactive work. Stop it with:
 
 ```bash
 interpreter kill
 ```
 
-Add `--force` if you want it to exit immediately without cleanup.
+Use `--force` only when a normal stop does not return.

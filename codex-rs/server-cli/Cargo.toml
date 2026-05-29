@@ -16,6 +16,10 @@ path = "src/bin/interpreter_tui.rs"
 name = "interpreter-app-server"
 path = "src/bin/interpreter_app_server.rs"
 
+[[bin]]
+name = "interpreter-acp"
+path = "src/bin/interpreter_acp.rs"
+
 [lib]
 name = "codex_server_cli"
 path = "src/lib.rs"
@@ -28,6 +32,7 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 codex-app-server = { workspace = true }
 codex-app-server-launcher = { workspace = true }
+codex-acp-server = { workspace = true }
 codex-arg0 = { workspace = true }
 codex-cli = { workspace = true }
 codex-core = { workspace = true }
@@ -48,6 +53,7 @@ url = { workspace = true }
 which = { workspace = true }
 
 [dev-dependencies]
+agent-client-protocol = { workspace = true }
 async-stream = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }

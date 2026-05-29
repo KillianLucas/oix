@@ -1906,6 +1906,51 @@ async fn model_selection_popup_snapshot() {
 }
 
 #[tokio::test]
+async fn harness_selection_popup_snapshot() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.3-codex")).await;
+    chat.config.model_provider_id = "openrouter".to_string();
+    chat.config.model_provider = codex_model_provider_info::ModelProviderInfo {
+        name: "OpenRouter".to_string(),
+        base_url: Some("https://openrouter.ai/api/v1".to_string()),
+        wire_api: codex_model_provider_info::WireApi::Chat,
+        ..Default::default()
+    };
+    chat.config
+        .model_providers
+        .insert("openrouter".to_string(), chat.config.model_provider.clone());
+
+    chat.open_harness_popup(
+        "anthropic/claude-sonnet-4.6".to_string(),
+        Some(ReasoningEffortConfig::Medium),
+    );
+
+    let popup = render_bottom_popup(&chat, /*width*/ 80);
+    assert_chatwidget_snapshot!("harness_selection_popup", popup);
+}
+
+#[tokio::test]
+async fn current_harness_selection_popup_snapshot() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("anthropic/claude-sonnet-4.6")).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.config.model_provider_id = "openrouter".to_string();
+    chat.config.model_provider = codex_model_provider_info::ModelProviderInfo {
+        name: "OpenRouter".to_string(),
+        base_url: Some("https://openrouter.ai/api/v1".to_string()),
+        wire_api: codex_model_provider_info::WireApi::Chat,
+        ..Default::default()
+    };
+    chat.config
+        .model_providers
+        .insert("openrouter".to_string(), chat.config.model_provider.clone());
+    chat.set_harness(Some("claude-code".to_string()));
+
+    chat.open_current_harness_popup();
+
+    let popup = render_bottom_popup(&chat, /*width*/ 80);
+    assert_chatwidget_snapshot!("current_harness_selection_popup", popup);
+}
+
+#[tokio::test]
 async fn personality_selection_popup_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.3-codex")).await;
     chat.thread_id = Some(ThreadId::new());

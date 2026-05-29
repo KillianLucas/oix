@@ -1,0 +1,17 @@
+---
+source: tui/src/chatwidget/tests/popups_and_settings.rs
+expression: popup
+---
+  Select Tool Harness
+  OpenRouter / anthropic/claude-sonnet-4.6
+
+› 1. Claude Code (recommended)  Use the Claude Code-style tool harness.
+  2. Open Interpreter           Use Open Interpreter's native tool interface.
+  3. Claude Code Bare           Use the lean Claude Code-style harness.
+  4. Kimi CLI                   Use the Kimi CLI-style tool harness.
+  5. Qwen Code                  Use the Qwen Code-style tool harness.
+  6. DeepSeek TUI               Use the DeepSeek TUI-style tool harness.
+  7. mini-swe-agent             Use the mini-swe-agent-style tool harness.
+  8. opencode                   Use the opencode-style tool harness.
+
+  Press enter to confirm or esc to go back

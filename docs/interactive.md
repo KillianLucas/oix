@@ -1,112 +1,109 @@
 ---
-title: Interactive mode
-description: How the terminal UI works during a normal session.
+title: Interactive Mode
+description: Work in the terminal UI with prompts, files, images, approvals, and slash commands.
 ---
 
-Run `interpreter` in a project directory and you land in the terminal UI.
-Type a request, watch the agent plan, edit files, and run commands.
+Run `interpreter` in a project directory to start the terminal UI:
 
 ```bash
 cd my-project
 interpreter
 ```
 
-You can also start with a prompt right away:
+You can also pass the first prompt on the command line:
 
 ```bash
-interpreter "what does the auth middleware do?"
+interpreter "find the auth middleware and explain how it works"
 ```
 
-## The composer
+## Composer
 
-The bottom of the screen is the composer. Type your message and press
-`Enter` to send.
+The composer is the prompt box at the bottom of the TUI.
 
-| Action                        | Keys              |
-| ----------------------------- | ----------------- |
-| Send message                  | `Enter`           |
-| New line                      | `Shift+Enter`     |
-| Slash command picker          | `/`               |
-| Mention a file                | `@`               |
-| Cancel current task           | `Esc`             |
-| Quit                          | `Ctrl+C` twice    |
+| Action | Keys or command |
+| ------ | --------------- |
+| Send message | `Enter` |
+| Add a newline | `Shift+Enter` |
+| Open slash commands | `/` |
+| Mention files | `@` or `/mention` |
+| Edit prompt in `$VISUAL` or `$EDITOR` | `Ctrl+G` |
+| Search prompt history | `Ctrl+R` |
+| Queue a follow-up while work is running | `Tab` |
+| Cancel or back out | `Esc` |
+| Quit | `/exit` or `Ctrl+C` twice |
 
-## Approving actions
+## Files and Images
 
-When the agent wants to run a command that needs approval, it pauses
-and shows you exactly what it plans to do.
+Use `@` to fuzzy-search files and add them as context. You can also attach
+images to the first prompt:
 
-| Key   | What it does                                       |
-| ----- | -------------------------------------------------- |
-| `y`   | Approve once                                       |
-| `a`   | Approve and don't ask again for that command this session |
-| `n`   | Deny                                               |
-| `Esc` | Deny and tell the agent what to do differently     |
+```bash
+interpreter -i screenshot.png "explain what is wrong in this UI"
+interpreter -i before.png,after.png "compare these states"
+```
 
-Approvals you remember last for the current session only. Quit and the
-agent asks again next time.
+## Approvals
 
-To change how often the agent asks, run `/permissions` or read the
-[sandbox guide](/docs/sandbox).
+When a command or tool needs approval, the TUI shows the request before it runs.
+The default posture is designed for day-to-day work in a trusted repository:
+workspace access is allowed, and actions outside the active policy ask first.
 
-## Picking a model
+Change the active policy with:
 
-Press `/model` to open the provider and model picker. The currently
-active model shows in the footer.
+```text
+/permissions
+```
 
-For tasks that need fast iteration, try `/fast`. It uses the fastest
-inference path the provider supports.
+For details, see [Sandbox & approvals](/docs/sandbox) and
+[Permissions](/docs/permissions).
 
-## Plan mode
+## Models and Providers
 
-`/plan` switches the agent into a read-only mode that thinks through a
-problem before touching anything. Useful when the change is large enough
-that you want to review the approach first.
+Use `/model` to pick the provider, model, and reasoning effort. Open
+Interpreter supports OpenAI, Anthropic, local providers, and compatible custom
+providers from the generated model catalog.
 
-When the plan looks right, leave plan mode and the agent executes it.
+Common one-off overrides:
 
-## Mentioning files
+```bash
+interpreter -m gpt-5.1-codex "review this module"
+interpreter --oss "try this with my local model"
+```
 
-Type `@` to open a fuzzy file picker. Selected files are pinned to the
-conversation as context. The same works with `/mention` if you prefer
-typing the command.
+## Review and Planning
 
-## Showing diffs
+Use `/plan` when you want the agent to inspect and propose before it edits. Use
+`/review` when you want a code-review pass over current changes.
 
-`/diff` prints the working-tree diff inline, including untracked files,
-without leaving the session.
+```text
+/plan
+/review
+```
 
-## Reviewing changes
+Review mode is read-focused. It reports bugs, regressions, missing tests, and
+risky behavior before summaries.
 
-`/review` asks the agent to review your current changes for bugs and
-regressions. It does not edit anything.
+## Background Work
 
-## Background terminals
+Long-running commands can stay alive in background terminals while the agent
+continues.
 
-The agent can spawn long-running terminals (a dev server, a watcher) and
-keep working while they run.
+| Command | Purpose |
+| ------- | ------- |
+| `/ps` | List background terminals |
+| `/stop` | Stop background terminals |
 
-| Command | What it does                          |
-| ------- | -------------------------------------- |
-| `/ps`   | List background terminals              |
-| `/stop` | Stop all background terminals          |
+## Session Controls
 
-## Switching between tabs
+| Command | Purpose |
+| ------- | ------- |
+| `/new` | Start a fresh conversation |
+| `/resume` | Pick an older session |
+| `/fork` | Branch the current session |
+| `/compact` | Summarize older context |
+| `/clear` | Clear the screen |
+| `/copy` | Copy the latest assistant output |
+| `/theme` | Change syntax highlighting theme |
+| `/status` | Inspect model, sandbox, approvals, and token state |
 
-Open Interpreter is designed for many tabs without each one acting like a
-separate runtime. Configuration and a shared local backend keep memory
-usage flat as you add tabs.
-
-The TUI also uses low-memory client behavior by default: completed transcript
-cells are not retained in every live client's in-memory transcript list, and
-large active tool outputs are capped in the live client. Set
-`INTERPRETER_TUI_LOW_MEMORY=0` before launch to disable this behavior for
-debugging.
-
-## Quitting
-
-| Command       | What it does                                          |
-| ------------- | ----------------------------------------------------- |
-| `/exit`       | Close the session                                     |
-| `Ctrl+C` x2   | Force quit (a one-second hint window prevents typos)  |
-| `interpreter kill` | Stop the local daemon entirely                   |
+Open Interpreter keeps session state locally under `~/.openinterpreter/`.

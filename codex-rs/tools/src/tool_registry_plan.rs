@@ -65,6 +65,7 @@ use crate::create_list_dir_tool;
 use crate::create_list_mcp_resource_templates_tool;
 use crate::create_list_mcp_resources_tool;
 use crate::create_local_shell_tool;
+use crate::create_mini_swe_agent_bash_tool;
 use crate::create_minimal_bash_tool;
 use crate::create_minimal_str_replace_editor_tool;
 use crate::create_qwen_code_edit_tool;
@@ -114,15 +115,20 @@ pub fn build_tool_registry_plan(
     let using_claude_code = config.harness.is_claude_code();
     let using_claude_code_bare = config.harness.is_claude_code_bare();
     let using_deepseek_tui = config.harness.is_deepseek_tui();
+    let using_kimi_code = config.harness.is_kimi_code();
     let using_kimi_cli = config.harness.is_kimi_cli();
+    let using_mini_swe_agent = config.harness.is_mini_swe_agent();
     let using_minimal = config.harness.is_minimal();
+    let using_opencode = config.harness.is_opencode();
     let using_qwen_code = config.harness.is_qwen_code();
     let using_swe_agent = config.harness.is_swe_agent();
 
     if config.code_mode_enabled
         && !using_claude_code
         && !using_deepseek_tui
+        && !using_kimi_code
         && !using_kimi_cli
+        && !using_mini_swe_agent
         && !using_qwen_code
         && !using_swe_agent
     {
@@ -366,6 +372,30 @@ pub fn build_tool_registry_plan(
         return plan;
     }
 
+    if using_kimi_code {
+        if config.has_environment {
+            plan.register_handler("Agent", ToolHandlerKind::KimiAgent);
+            plan.register_handler("AskUserQuestion", ToolHandlerKind::KimiAskUserQuestion);
+            plan.register_handler("Bash", ToolHandlerKind::KimiShell);
+            plan.register_handler("TaskList", ToolHandlerKind::KimiTaskList);
+            plan.register_handler("TaskOutput", ToolHandlerKind::KimiTaskOutput);
+            plan.register_handler("TaskStop", ToolHandlerKind::KimiTaskStop);
+            plan.register_handler("Read", ToolHandlerKind::KimiReadFile);
+            plan.register_handler("ReadMediaFile", ToolHandlerKind::KimiReadMediaFile);
+            plan.register_handler("Glob", ToolHandlerKind::KimiGlob);
+            plan.register_handler("Grep", ToolHandlerKind::KimiGrep);
+            plan.register_handler("Write", ToolHandlerKind::KimiWriteFile);
+            plan.register_handler("Edit", ToolHandlerKind::KimiStrReplaceFile);
+            plan.register_handler("FetchURL", ToolHandlerKind::KimiFetchUrl);
+            plan.register_handler("ExitPlanMode", ToolHandlerKind::KimiExitPlanMode);
+            plan.register_handler("EnterPlanMode", ToolHandlerKind::KimiEnterPlanMode);
+            plan.register_handler("TodoList", ToolHandlerKind::KimiSetTodoList);
+        }
+
+        apply_tool_name_filters(&mut plan, config);
+        return plan;
+    }
+
     if using_kimi_cli {
         if config.has_environment {
             plan.push_spec(
@@ -491,9 +521,55 @@ pub fn build_tool_registry_plan(
         return plan;
     }
 
+    if using_opencode {
+        if config.has_environment {
+            plan.register_handler("bash", ToolHandlerKind::OpenCodeBash);
+            plan.register_handler("edit", ToolHandlerKind::OpenCodeEdit);
+            plan.register_handler("glob", ToolHandlerKind::OpenCodeGlob);
+            plan.register_handler("grep", ToolHandlerKind::OpenCodeGrep);
+            plan.register_handler("read", ToolHandlerKind::OpenCodeRead);
+            plan.register_handler("skill", ToolHandlerKind::OpenCodeSkill);
+            plan.register_handler("task", ToolHandlerKind::OpenCodeTask);
+            plan.register_handler("todowrite", ToolHandlerKind::OpenCodeTodoWrite);
+            plan.register_handler("webfetch", ToolHandlerKind::OpenCodeWebFetch);
+            plan.register_handler("write", ToolHandlerKind::OpenCodeWrite);
+        }
+
+        apply_tool_name_filters(&mut plan, config);
+        return plan;
+    }
+
+    if config.harness.is_pi() || config.harness.is_little_coder() {
+        if config.has_environment {
+            plan.register_handler("bash", ToolHandlerKind::PiBash);
+            plan.register_handler("edit", ToolHandlerKind::PiEdit);
+            plan.register_handler("glob", ToolHandlerKind::OpenCodeGlob);
+            plan.register_handler("read", ToolHandlerKind::PiRead);
+            plan.register_handler("webfetch", ToolHandlerKind::OpenCodeWebFetch);
+            plan.register_handler("write", ToolHandlerKind::PiWrite);
+        }
+
+        apply_tool_name_filters(&mut plan, config);
+        return plan;
+    }
+
     if using_swe_agent {
         plan.register_handler("local_shell", ToolHandlerKind::Shell);
         plan.register_handler("swe_agent_command", ToolHandlerKind::SweAgentCommand);
+        apply_tool_name_filters(&mut plan, config);
+        return plan;
+    }
+
+    if using_mini_swe_agent {
+        if config.has_environment {
+            plan.push_spec(
+                create_mini_swe_agent_bash_tool(),
+                /*supports_parallel_tool_calls*/ false,
+                /*code_mode_enabled*/ false,
+            );
+            plan.register_handler("bash", ToolHandlerKind::MiniSweAgentBash);
+        }
+
         apply_tool_name_filters(&mut plan, config);
         return plan;
     }

@@ -1,104 +1,81 @@
 ---
-title: Slash commands
-description: Quick actions you can run from the composer.
+title: Slash Commands
+description: Commands available from the interactive composer.
 ---
 
-Type `/` in the composer to open the slash command picker. Start typing
-to filter, then press `Enter` to run.
+Type `/` in the composer to open the command picker. The list adapts to the
+current mode and active feature flags.
 
-Some commands take inline arguments, like `/review fix the auth flow`.
+## Models and Behavior
 
-## Models and personality
+| Command | Purpose |
+| ------- | ------- |
+| `/model` | Choose provider, model, and reasoning effort. |
+| `/fast` | Use the fastest supported service tier where available. |
+| `/personality` | Select the communication style. |
+| `/theme` | Change syntax highlighting theme. |
+| `/status` | Show model, provider, sandbox, approvals, token use, and session state. |
 
-| Command         | What it does                                                  |
-| --------------- | ------------------------------------------------------------- |
-| `/model`        | Choose provider, model, and reasoning effort                  |
-| `/fast`         | Toggle Fast mode on supported models                          |
-| `/personality`  | Choose a communication style                                  |
-| `/realtime`     | Toggle realtime voice mode (experimental)                     |
-| `/settings`     | Configure realtime microphone and speaker                     |
+## Permissions and Sandboxing
 
-## Permissions and sandbox
+| Command | Purpose |
+| ------- | ------- |
+| `/permissions` | Choose the active permission posture. |
+| `/approvals` | Alias for permissions in compatible builds. |
+| `/sandbox-add-read-dir <path>` | Grant read access to an extra directory. |
+| `/setup-default-sandbox` | Configure a default sandbox where supported. |
 
-| Command                      | What it does                                                |
-| ---------------------------- | ----------------------------------------------------------- |
-| `/permissions`               | Pick what runs without asking                               |
-| `/approvals`                 | Same as `/permissions`                                      |
-| `/setup-default-sandbox`     | Set up an elevated agent sandbox                            |
-| `/sandbox-add-read-dir <path>` | Grant the sandbox read access to a directory              |
+## Conversation and Sessions
 
-## Conversation
+| Command | Purpose |
+| ------- | ------- |
+| `/new` | Start a new conversation. |
+| `/resume` | Resume an older session. |
+| `/fork` | Branch the current session into a new one. |
+| `/side` | Start a side conversation in a fork. |
+| `/agent` | Switch or manage subagent threads. |
+| `/clear` | Clear the visible transcript. |
+| `/compact` | Summarize old context to make room. |
+| `/rename` | Rename the current thread. |
+| `/exit`, `/quit` | Leave the TUI. |
 
-| Command    | What it does                                                  |
-| ---------- | ------------------------------------------------------------- |
-| `/new`     | Start a fresh conversation in the same tab                    |
-| `/resume`  | Open the resume picker                                        |
-| `/fork`    | Fork the current chat into a new thread                       |
-| `/rename`  | Rename the current thread                                     |
-| `/clear`   | Clear the terminal and start a new chat                       |
-| `/compact` | Summarize older turns to free context                         |
-| `/side`    | Start a side conversation in an ephemeral fork                |
-| `/agent`   | Switch the active agent thread                                |
+## Files and Code
 
-## Files and changes
+| Command | Purpose |
+| ------- | ------- |
+| `/init` | Create an `AGENTS.md` with project guidance. |
+| `/mention` | Add files to the conversation. |
+| `/diff` | Show the current working-tree diff. |
+| `/review` | Review current changes for bugs and regressions. |
+| `/copy` | Copy the latest assistant response. |
 
-| Command      | What it does                                            |
-| ------------ | ------------------------------------------------------- |
-| `/init`      | Create an `AGENTS.md` file with project instructions    |
-| `/diff`      | Show the working-tree diff (including untracked files)  |
-| `/mention`   | Pin a file to the conversation                          |
-| `/copy`      | Copy the latest output to your clipboard                |
-| `/review`    | Review your current changes for issues                  |
+## Integrations
 
-## Modes
+| Command | Purpose |
+| ------- | ------- |
+| `/mcp` | Show configured MCP servers and tools. |
+| `/skills` | Inspect available skills. |
+| `/plugins` | Browse plugin support when enabled. |
+| `/apps` | Manage connector/app tools when enabled. |
+| `/memories` | Inspect or configure memories when enabled. |
+| `/hooks` | Review and trust lifecycle hooks. |
 
-| Command        | What it does                                          |
-| -------------- | ----------------------------------------------------- |
-| `/plan`        | Switch to Plan mode for read-only thinking            |
-| `/goal`        | Set or view the goal for a long-running task          |
-| `/collab`      | Change collaboration mode (experimental)              |
+## Background Work
 
-## Tools and integrations
+| Command | Purpose |
+| ------- | ------- |
+| `/ps` | List background terminal tasks. |
+| `/stop` | Stop background tasks. |
 
-| Command       | What it does                                               |
-| ------------- | ---------------------------------------------------------- |
-| `/skills`     | Browse and toggle skills                                   |
-| `/mcp`        | List configured MCP tools (`/mcp verbose` for details)     |
-| `/apps`       | Manage app connectors                                      |
-| `/plugins`    | Browse plugins                                             |
-| `/memories`   | Configure memory use and generation                        |
+## Diagnostics and Lifecycle
 
-## Background work
-
-| Command  | What it does                       |
-| -------- | ---------------------------------- |
-| `/ps`    | List background terminals          |
-| `/stop`  | Stop all background terminals      |
-
-## Session info
-
-| Command         | What it does                                              |
-| --------------- | --------------------------------------------------------- |
-| `/status`       | Show session configuration and token usage                |
-| `/debug-config` | Print configuration layers and requirement sources        |
-| `/rollout`      | Print the rollout file path                               |
-| `/title`        | Configure terminal title fields                           |
-| `/statusline`   | Configure status line fields                              |
-| `/theme`        | Choose a syntax highlighting theme                        |
-
-## App lifecycle
-
-| Command       | What it does                  |
-| ------------- | ----------------------------- |
-| `/update`     | Manage Open Interpreter updates |
-| `/feedback`   | Send logs to maintainers      |
-| `/experimental` | Toggle experimental features |
-| `/logout`     | Sign out                      |
-| `/exit`       | Exit the CLI                  |
-| `/quit`       | Same as `/exit`               |
-
-<Tip>
-The picker only shows commands that are valid right now. Commands like
-`/model` are hidden while a task is running, and command availability
-adapts to your active mode.
-</Tip>
+| Command | Purpose |
+| ------- | ------- |
+| `/debug-config` | Print resolved configuration and sources. |
+| `/rollout` | Show the local transcript path. |
+| `/title` | Configure terminal title behavior. |
+| `/statusline` | Configure status line behavior. |
+| `/experimental` | Toggle experimental features where exposed. |
+| `/update` | Manage standalone CLI updates. |
+| `/logout` | Remove saved credentials. |
+| `/feedback` | Send feedback and optional logs. |

@@ -132,8 +132,23 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::ListDirHandler;
     use crate::tools::handlers::McpHandler;
     use crate::tools::handlers::McpResourceHandler;
+    use crate::tools::handlers::MiniSweAgentBashHandler;
     use crate::tools::handlers::MinimalBashHandler;
     use crate::tools::handlers::MinimalStrReplaceEditorHandler;
+    use crate::tools::handlers::OpenCodeBashHandler;
+    use crate::tools::handlers::OpenCodeEditHandler;
+    use crate::tools::handlers::OpenCodeGlobHandler;
+    use crate::tools::handlers::OpenCodeGrepHandler;
+    use crate::tools::handlers::OpenCodeReadHandler;
+    use crate::tools::handlers::OpenCodeSkillHandler;
+    use crate::tools::handlers::OpenCodeTaskHandler;
+    use crate::tools::handlers::OpenCodeTodoWriteHandler;
+    use crate::tools::handlers::OpenCodeWebFetchHandler;
+    use crate::tools::handlers::OpenCodeWriteHandler;
+    use crate::tools::handlers::PiBashHandler;
+    use crate::tools::handlers::PiEditHandler;
+    use crate::tools::handlers::PiReadHandler;
+    use crate::tools::handlers::PiWriteHandler;
     use crate::tools::handlers::PlanHandler;
     use crate::tools::handlers::QwenAgentHandler;
     use crate::tools::handlers::QwenAskUserQuestionHandler;
@@ -433,8 +448,53 @@ pub(crate) fn build_specs_with_discoverable_tools(
             ToolHandlerKind::MinimalBash => {
                 builder.register_handler(handler.name, Arc::new(MinimalBashHandler));
             }
+            ToolHandlerKind::MiniSweAgentBash => {
+                builder.register_handler(handler.name, Arc::new(MiniSweAgentBashHandler));
+            }
             ToolHandlerKind::MinimalStrReplaceEditor => {
                 builder.register_handler(handler.name, Arc::new(MinimalStrReplaceEditorHandler));
+            }
+            ToolHandlerKind::OpenCodeBash => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeBashHandler));
+            }
+            ToolHandlerKind::OpenCodeEdit => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeEditHandler));
+            }
+            ToolHandlerKind::OpenCodeGlob => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeGlobHandler));
+            }
+            ToolHandlerKind::OpenCodeGrep => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeGrepHandler));
+            }
+            ToolHandlerKind::OpenCodeRead => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeReadHandler));
+            }
+            ToolHandlerKind::OpenCodeSkill => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeSkillHandler));
+            }
+            ToolHandlerKind::OpenCodeTask => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeTaskHandler));
+            }
+            ToolHandlerKind::OpenCodeTodoWrite => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeTodoWriteHandler));
+            }
+            ToolHandlerKind::OpenCodeWebFetch => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeWebFetchHandler));
+            }
+            ToolHandlerKind::OpenCodeWrite => {
+                builder.register_handler(handler.name, Arc::new(OpenCodeWriteHandler));
+            }
+            ToolHandlerKind::PiBash => {
+                builder.register_handler(handler.name, Arc::new(PiBashHandler));
+            }
+            ToolHandlerKind::PiEdit => {
+                builder.register_handler(handler.name, Arc::new(PiEditHandler));
+            }
+            ToolHandlerKind::PiRead => {
+                builder.register_handler(handler.name, Arc::new(PiReadHandler));
+            }
+            ToolHandlerKind::PiWrite => {
+                builder.register_handler(handler.name, Arc::new(PiWriteHandler));
             }
             ToolHandlerKind::Plan => {
                 builder.register_handler(handler.name, plan_handler.clone());

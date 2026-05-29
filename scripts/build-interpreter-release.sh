@@ -26,6 +26,7 @@ required_bins=(
   interpreter
   interpreter-tui
   interpreter-app-server
+  interpreter-acp
   interpreter-root-tui
   interpreter-exec
 )

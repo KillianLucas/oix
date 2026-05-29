@@ -6,6 +6,7 @@ use codex_api::common::TextFormat;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::LocalShellAction;
+use codex_protocol::models::ReasoningItemContent;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::models::SearchToolCallParams;
 use codex_protocol::models::ShellToolCallParams;
@@ -56,6 +57,8 @@ pub(crate) struct ChatMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) content: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool_calls: Option<Vec<ChatToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool_call_id: Option<String>,
@@ -98,17 +101,40 @@ pub(crate) fn convert_request(
         messages.push(ChatMessage {
             role: "system".to_string(),
             content: Some(json!(request.instructions)),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         });
     }
 
+    let mut pending_reasoning_content: Option<String> = None;
+    let mut pending_assistant_content: Option<Value> = None;
+    let mut pending_tool_calls: Vec<ChatToolCall> = Vec::new();
     for item in &request.input {
         match item {
             ResponseItem::Message { role, content, .. } => {
+                let is_assistant = role == "assistant";
+                let converted_content = convert_message_content(content);
+                if is_assistant && chat_content_is_empty(&converted_content) {
+                    continue;
+                }
+                if is_assistant {
+                    merge_pending_assistant_content(
+                        &mut pending_assistant_content,
+                        converted_content,
+                    );
+                    continue;
+                }
+                flush_pending_assistant(
+                    &mut messages,
+                    &mut pending_reasoning_content,
+                    &mut pending_assistant_content,
+                    &mut pending_tool_calls,
+                );
                 messages.push(ChatMessage {
-                    role: role.clone(),
-                    content: convert_message_content(content),
+                    role: chat_message_role(role).to_string(),
+                    content: converted_content,
+                    reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: None,
                 });
@@ -120,22 +146,17 @@ pub(crate) fn convert_request(
                 call_id,
                 ..
             } => {
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: None,
-                    tool_calls: Some(vec![ChatToolCall {
-                        id: call_id.clone(),
-                        type_: "function".to_string(),
-                        function: ChatFunctionCall {
-                            name: chat_function_call_name(
-                                namespace.as_deref(),
-                                name,
-                                &original_function_names,
-                            ),
-                            arguments: arguments.clone(),
-                        },
-                    }]),
-                    tool_call_id: None,
+                pending_tool_calls.push(ChatToolCall {
+                    id: call_id.clone(),
+                    type_: "function".to_string(),
+                    function: ChatFunctionCall {
+                        name: chat_function_call_name(
+                            namespace.as_deref(),
+                            name,
+                            &original_function_names,
+                        ),
+                        arguments: arguments.clone(),
+                    },
                 });
             }
             ResponseItem::CustomToolCall {
@@ -144,18 +165,13 @@ pub(crate) fn convert_request(
                 input,
                 ..
             } => {
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: None,
-                    tool_calls: Some(vec![ChatToolCall {
-                        id: call_id.clone(),
-                        type_: "function".to_string(),
-                        function: ChatFunctionCall {
-                            name: name.clone(),
-                            arguments: json!({ "input": input }).to_string(),
-                        },
-                    }]),
-                    tool_call_id: None,
+                pending_tool_calls.push(ChatToolCall {
+                    id: call_id.clone(),
+                    type_: "function".to_string(),
+                    function: ChatFunctionCall {
+                        name: name.clone(),
+                        arguments: json!({ "input": input }).to_string(),
+                    },
                 });
             }
             ResponseItem::LocalShellCall {
@@ -177,18 +193,13 @@ pub(crate) fn convert_request(
                     })
                     .to_string(),
                 };
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: None,
-                    tool_calls: Some(vec![ChatToolCall {
-                        id: call_id,
-                        type_: "function".to_string(),
-                        function: ChatFunctionCall {
-                            name: "local_shell".to_string(),
-                            arguments,
-                        },
-                    }]),
-                    tool_call_id: None,
+                pending_tool_calls.push(ChatToolCall {
+                    id: call_id,
+                    type_: "function".to_string(),
+                    function: ChatFunctionCall {
+                        name: "local_shell".to_string(),
+                        arguments,
+                    },
                 });
             }
             ResponseItem::ToolSearchCall {
@@ -197,28 +208,30 @@ pub(crate) fn convert_request(
                 arguments,
                 ..
             } => {
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: None,
-                    tool_calls: Some(vec![ChatToolCall {
-                        id: call_id.clone().unwrap_or_else(|| "tool_search".to_string()),
-                        type_: "function".to_string(),
-                        function: ChatFunctionCall {
-                            name: "tool_search".to_string(),
-                            arguments: json!({
-                                "execution": execution,
-                                "arguments": arguments,
-                            })
-                            .to_string(),
-                        },
-                    }]),
-                    tool_call_id: None,
+                pending_tool_calls.push(ChatToolCall {
+                    id: call_id.clone().unwrap_or_else(|| "tool_search".to_string()),
+                    type_: "function".to_string(),
+                    function: ChatFunctionCall {
+                        name: "tool_search".to_string(),
+                        arguments: json!({
+                            "execution": execution,
+                            "arguments": arguments,
+                        })
+                        .to_string(),
+                    },
                 });
             }
             ResponseItem::FunctionCallOutput { call_id, output } => {
+                flush_pending_assistant(
+                    &mut messages,
+                    &mut pending_reasoning_content,
+                    &mut pending_assistant_content,
+                    &mut pending_tool_calls,
+                );
                 messages.push(ChatMessage {
                     role: "tool".to_string(),
                     content: Some(json!(tool_output_text(output))),
+                    reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: Some(call_id.clone()),
                 });
@@ -226,9 +239,16 @@ pub(crate) fn convert_request(
             ResponseItem::CustomToolCallOutput {
                 call_id, output, ..
             } => {
+                flush_pending_assistant(
+                    &mut messages,
+                    &mut pending_reasoning_content,
+                    &mut pending_assistant_content,
+                    &mut pending_tool_calls,
+                );
                 messages.push(ChatMessage {
                     role: "tool".to_string(),
                     content: Some(json!(tool_output_text(output))),
+                    reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: Some(call_id.clone()),
                 });
@@ -239,22 +259,51 @@ pub(crate) fn convert_request(
                 execution,
                 tools,
             } => {
+                flush_pending_assistant(
+                    &mut messages,
+                    &mut pending_reasoning_content,
+                    &mut pending_assistant_content,
+                    &mut pending_tool_calls,
+                );
                 messages.push(ChatMessage {
                     role: "tool".to_string(),
                     content: Some(json!(tool_search_output_text(status, execution, tools))),
+                    reasoning_content: None,
                     tool_calls: None,
                     tool_call_id: Some(
                         call_id.clone().unwrap_or_else(|| "tool_search".to_string()),
                     ),
                 });
             }
-            ResponseItem::Reasoning { .. }
-            | ResponseItem::WebSearchCall { .. }
+            ResponseItem::Reasoning { content, .. } => {
+                if let Some(text) = reasoning_content_text(content.as_deref()) {
+                    pending_reasoning_content = Some(match pending_reasoning_content.take() {
+                        Some(existing) => format!("{existing}{text}"),
+                        None => text,
+                    });
+                }
+            }
+            ResponseItem::WebSearchCall { .. }
             | ResponseItem::ImageGenerationCall { .. }
             | ResponseItem::GhostSnapshot { .. }
             | ResponseItem::Compaction { .. }
             | ResponseItem::Other => {}
         }
+    }
+    flush_pending_assistant(
+        &mut messages,
+        &mut pending_reasoning_content,
+        &mut pending_assistant_content,
+        &mut pending_tool_calls,
+    );
+    if let Some(reasoning_content) = pending_reasoning_content.take() {
+        messages.push(ChatMessage {
+            role: "assistant".to_string(),
+            content: Some(json!("")),
+            reasoning_content: Some(reasoning_content),
+            tool_calls: None,
+            tool_call_id: None,
+        });
     }
 
     let chat_request = ChatCompletionRequest {
@@ -278,6 +327,83 @@ pub(crate) fn convert_request(
     };
 
     Ok((chat_request, tool_kinds))
+}
+
+fn flush_pending_assistant(
+    messages: &mut Vec<ChatMessage>,
+    pending_reasoning_content: &mut Option<String>,
+    pending_assistant_content: &mut Option<Value>,
+    pending_tool_calls: &mut Vec<ChatToolCall>,
+) {
+    if pending_assistant_content.is_none() && pending_tool_calls.is_empty() {
+        return;
+    }
+
+    messages.push(ChatMessage {
+        role: "assistant".to_string(),
+        content: pending_assistant_content.take(),
+        reasoning_content: pending_reasoning_content.take(),
+        tool_calls: (!pending_tool_calls.is_empty()).then(|| std::mem::take(pending_tool_calls)),
+        tool_call_id: None,
+    });
+}
+
+fn merge_pending_assistant_content(
+    pending_assistant_content: &mut Option<Value>,
+    converted_content: Option<Value>,
+) {
+    let Some(converted_content) = converted_content else {
+        return;
+    };
+
+    match (pending_assistant_content.take(), converted_content) {
+        (None, converted_content) => {
+            *pending_assistant_content = Some(converted_content);
+        }
+        (Some(Value::String(mut existing)), Value::String(next)) => {
+            existing.push_str(&next);
+            *pending_assistant_content = Some(Value::String(existing));
+        }
+        (Some(Value::Array(mut existing)), Value::Array(next)) => {
+            existing.extend(next);
+            *pending_assistant_content = Some(Value::Array(existing));
+        }
+        (Some(existing), next) => {
+            *pending_assistant_content = Some(json!([existing, next,]));
+        }
+    }
+}
+
+fn reasoning_content_text(content: Option<&[ReasoningItemContent]>) -> Option<String> {
+    let text = content?
+        .iter()
+        .map(|item| match item {
+            ReasoningItemContent::ReasoningText { text } | ReasoningItemContent::Text { text } => {
+                text.as_str()
+            }
+        })
+        .collect::<String>();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn chat_content_is_empty(content: &Option<Value>) -> bool {
+    match content {
+        None => true,
+        Some(Value::String(text)) => text.is_empty(),
+        Some(Value::Array(items)) => items.is_empty(),
+        Some(Value::Object(object)) => object
+            .get("text")
+            .and_then(Value::as_str)
+            .is_some_and(str::is_empty),
+        Some(Value::Bool(_) | Value::Null | Value::Number(_)) => false,
+    }
+}
+
+fn chat_message_role(role: &str) -> &str {
+    match role {
+        "developer" => "user",
+        role => role,
+    }
 }
 
 fn convert_message_content(content: &[ContentItem]) -> Option<Value> {
@@ -723,6 +849,107 @@ mod tests {
     }
 
     #[test]
+    fn convert_request_maps_developer_messages_to_user_for_chat() {
+        let request = ResponsesApiRequest {
+            model: "deepseek-v4-flash".to_string(),
+            instructions: String::new(),
+            input: vec![ResponseItem::Message {
+                id: None,
+                role: "developer".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "keep going".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            }],
+            tools: Vec::new(),
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: true,
+            reasoning: None,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            text: None,
+        };
+
+        let (chat, _) = convert_request(&request).expect("request should convert");
+
+        assert_eq!(chat.messages.len(), 1);
+        assert_eq!(chat.messages[0].role, "user");
+        assert_eq!(chat.messages[0].content, Some(json!("keep going")));
+    }
+
+    #[test]
+    fn convert_request_replays_reasoning_content_on_next_assistant_tool_call() {
+        let request = ResponsesApiRequest {
+            model: "deepseek-v4-flash".to_string(),
+            instructions: String::new(),
+            input: vec![
+                ResponseItem::Message {
+                    id: None,
+                    role: "user".to_string(),
+                    content: vec![ContentItem::InputText {
+                        text: "list files".to_string(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Some(vec![ReasoningItemContent::ReasoningText {
+                        text: "I need to inspect the directory.".to_string(),
+                    }]),
+                    encrypted_content: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "shell".to_string(),
+                    namespace: None,
+                    arguments: json!({ "command": "ls" }).to_string(),
+                    call_id: "call-1".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call-1".to_string(),
+                    output: FunctionCallOutputPayload::from_text("file.txt".to_string()),
+                },
+            ],
+            tools: vec![json!({
+                "type": "function",
+                "name": "shell",
+                "description": "Run a command",
+                "parameters": { "type": "object" }
+            })],
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: true,
+            reasoning: None,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            text: None,
+        };
+
+        let (chat, _) = convert_request(&request).expect("request should convert");
+
+        let assistant_tool_call = chat
+            .messages
+            .iter()
+            .find(|message| message.tool_calls.is_some())
+            .expect("assistant tool call message should be present");
+        assert_eq!(assistant_tool_call.role, "assistant");
+        assert_eq!(
+            assistant_tool_call.reasoning_content.as_deref(),
+            Some("I need to inspect the directory.")
+        );
+    }
+
+    #[test]
     fn convert_request_flattens_namespace_tools_and_preserves_output_mapping() {
         let request = ResponsesApiRequest {
             model: "gpt-5.2-codex".to_string(),
@@ -853,6 +1080,247 @@ mod tests {
                 namespace: "codex_app".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn convert_request_replays_reasoning_content_past_empty_assistant_message() {
+        let request = ResponsesApiRequest {
+            model: "deepseek-v4-flash".to_string(),
+            instructions: String::new(),
+            input: vec![
+                ResponseItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Some(vec![ReasoningItemContent::ReasoningText {
+                        text: "Need to inspect files.".to_string(),
+                    }]),
+                    encrypted_content: None,
+                },
+                ResponseItem::Message {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: vec![ContentItem::OutputText {
+                        text: String::new(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "Read".to_string(),
+                    namespace: None,
+                    arguments: json!({ "file_path": "/app/file.txt" }).to_string(),
+                    call_id: "call-1".to_string(),
+                },
+            ],
+            tools: vec![json!({
+                "type": "function",
+                "name": "Read",
+                "description": "Read a file",
+                "parameters": { "type": "object" }
+            })],
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: true,
+            reasoning: None,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            text: None,
+        };
+
+        let (chat, _) = convert_request(&request).expect("request should convert");
+
+        assert_eq!(chat.messages.len(), 1);
+        assert_eq!(chat.messages[0].role, "assistant");
+        assert_eq!(
+            chat.messages[0].reasoning_content.as_deref(),
+            Some("Need to inspect files.")
+        );
+        assert!(chat.messages[0].tool_calls.is_some());
+    }
+
+    #[test]
+    fn convert_request_groups_parallel_tool_calls_with_reasoning_content() {
+        let request = ResponsesApiRequest {
+            model: "deepseek-v4-flash".to_string(),
+            instructions: String::new(),
+            input: vec![
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "Read".to_string(),
+                    namespace: None,
+                    arguments: json!({ "file_path": "/app/legacy.py" }).to_string(),
+                    call_id: "call-1".to_string(),
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "Read".to_string(),
+                    namespace: None,
+                    arguments: json!({ "file_path": "/app/data.csv" }).to_string(),
+                    call_id: "call-2".to_string(),
+                },
+                ResponseItem::Message {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: vec![ContentItem::OutputText {
+                        text: String::new(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Some(vec![ReasoningItemContent::ReasoningText {
+                        text: "Need to inspect both files.".to_string(),
+                    }]),
+                    encrypted_content: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "Read".to_string(),
+                    namespace: None,
+                    arguments: json!({ "file_path": "/app/config.ini" }).to_string(),
+                    call_id: "call-3".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call-1".to_string(),
+                    output: FunctionCallOutputPayload::from_text("legacy".to_string()),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call-2".to_string(),
+                    output: FunctionCallOutputPayload::from_text("data".to_string()),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call-3".to_string(),
+                    output: FunctionCallOutputPayload::from_text("config".to_string()),
+                },
+            ],
+            tools: vec![json!({
+                "type": "function",
+                "name": "Read",
+                "description": "Read a file",
+                "parameters": { "type": "object" }
+            })],
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: true,
+            reasoning: None,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            text: None,
+        };
+
+        let (chat, _) = convert_request(&request).expect("request should convert");
+
+        assert_eq!(chat.messages.len(), 4);
+        assert_eq!(chat.messages[0].role, "assistant");
+        assert_eq!(
+            chat.messages[0].reasoning_content.as_deref(),
+            Some("Need to inspect both files.")
+        );
+        assert_eq!(chat.messages[0].tool_calls.as_ref().map(Vec::len), Some(3));
+        assert_eq!(chat.messages[1].role, "tool");
+        assert_eq!(chat.messages[2].role, "tool");
+        assert_eq!(chat.messages[3].role, "tool");
+    }
+
+    #[test]
+    fn convert_request_groups_assistant_text_with_following_tool_call() {
+        let request = ResponsesApiRequest {
+            model: "deepseek-v4-flash".to_string(),
+            instructions: String::new(),
+            input: vec![
+                ResponseItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Some(vec![ReasoningItemContent::ReasoningText {
+                        text: "Need one more directory listing.".to_string(),
+                    }]),
+                    encrypted_content: None,
+                },
+                ResponseItem::Message {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: vec![ContentItem::OutputText {
+                        text: "I will inspect the directory.".to_string(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "Bash".to_string(),
+                    namespace: None,
+                    arguments: json!({ "command": "ls" }).to_string(),
+                    call_id: "call-1".to_string(),
+                },
+                ResponseItem::Message {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: vec![ContentItem::OutputText {
+                        text: " Then I will inspect hidden files.".to_string(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "Bash".to_string(),
+                    namespace: None,
+                    arguments: json!({ "command": "ls -a" }).to_string(),
+                    call_id: "call-2".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call-1".to_string(),
+                    output: FunctionCallOutputPayload::from_text("file.txt".to_string()),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call-2".to_string(),
+                    output: FunctionCallOutputPayload::from_text(".git".to_string()),
+                },
+            ],
+            tools: vec![json!({
+                "type": "function",
+                "name": "Bash",
+                "description": "Run a command",
+                "parameters": { "type": "object" }
+            })],
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: true,
+            reasoning: None,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            text: None,
+        };
+
+        let (chat, _) = convert_request(&request).expect("request should convert");
+
+        assert_eq!(chat.messages.len(), 3);
+        assert_eq!(chat.messages[0].role, "assistant");
+        assert_eq!(
+            chat.messages[0].content,
+            Some(json!(
+                "I will inspect the directory. Then I will inspect hidden files."
+            ))
+        );
+        assert_eq!(
+            chat.messages[0].reasoning_content.as_deref(),
+            Some("Need one more directory listing.")
+        );
+        assert_eq!(chat.messages[0].tool_calls.as_ref().map(Vec::len), Some(2));
+        assert_eq!(chat.messages[1].role, "tool");
+        assert_eq!(chat.messages[2].role, "tool");
     }
 
     #[test]

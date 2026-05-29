@@ -52,6 +52,7 @@ use crate::onboarding::local_provider::wait_for_local_provider_running;
 use crate::onboarding::model_selection::LoadingProviderModelsState;
 use crate::onboarding::model_selection::LocalProviderUnavailableState;
 use crate::onboarding::model_selection::ManualModelEntryState;
+use crate::onboarding::model_selection::ProviderHarnessSelectionState;
 use crate::onboarding::model_selection::ProviderModelLoadResolution;
 use crate::onboarding::model_selection::ProviderModelSelectionState;
 use crate::onboarding::model_selection::ProviderReasoningSelectionState;
@@ -130,6 +131,7 @@ pub(crate) enum SignInState {
     LocalProviderUnavailable(LocalProviderUnavailableState),
     ProviderModelSelection(ProviderModelSelectionState),
     ProviderReasoningSelection(ProviderReasoningSelectionState),
+    ProviderHarnessSelection(ProviderHarnessSelectionState),
     ManualModelEntry(ManualModelEntryState),
     ProviderConfigured(String),
     ContinueInBrowser(ContinueInBrowserState),
@@ -237,6 +239,9 @@ impl KeyboardHandler for AuthModeWidget {
             return;
         }
         if self.handle_provider_reasoning_selection_key_event(&key_event) {
+            return;
+        }
+        if self.handle_provider_harness_selection_key_event(&key_event) {
             return;
         }
         if self.handle_manual_model_entry_key_event(&key_event) {
@@ -377,6 +382,7 @@ pub(crate) enum PendingAppServerAction {
         provider_name: String,
         model: String,
         effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+        harness: Option<String>,
     },
     SaveApiKey(String),
     StartKimiCodeLogin,
@@ -502,12 +508,14 @@ impl AuthModeWidget {
                 provider_name,
                 model,
                 effort,
+                harness,
             } => {
                 self.persist_provider_model_selection(
                     provider_id,
                     provider_name,
                     model,
                     effort,
+                    harness,
                     pending_request.fallback_state,
                 );
             }
@@ -884,6 +892,7 @@ impl AuthModeWidget {
         provider_name: String,
         model: String,
         effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+        harness: Option<String>,
         fallback_state: SignInState,
     ) {
         self.set_error(/*message*/ None);
@@ -894,6 +903,7 @@ impl AuthModeWidget {
                     provider_name: provider_name.clone(),
                     model,
                     effort,
+                    harness,
                 },
                 fallback_state,
                 SignInState::ConnectingAppServer(ConnectingAppServerState {
@@ -922,6 +932,7 @@ impl AuthModeWidget {
                 configured_provider.as_ref(),
                 Some(model.as_str()),
                 effort,
+                harness.as_deref(),
             ));
             match request_handle
                 .request_typed::<ConfigWriteResponse>(ClientRequest::ConfigBatchWrite {
@@ -1586,6 +1597,52 @@ impl AuthModeWidget {
             .render(area, buf);
     }
 
+    fn render_provider_harness_selection(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        state: &ProviderHarnessSelectionState,
+    ) {
+        let mut lines = vec![
+            Line::from(format!("> {} / {}", state.provider_name, state.model).bold()),
+            "".into(),
+            "  Choose a tool harness for this new chat.".into(),
+            "".into(),
+        ];
+
+        for (idx, choice) in state.choices().iter().enumerate() {
+            let is_selected = idx == state.selected_idx();
+            let prefix = if is_selected { ">" } else { " " };
+            let style = if is_selected {
+                selected_option_style()
+            } else {
+                unselected_option_style()
+            };
+            lines.push(
+                format!("{prefix} {}. {}", idx + 1, choice.label)
+                    .set_style(style)
+                    .into(),
+            );
+            lines.push(
+                format!("     {}", choice.description)
+                    .set_style(style)
+                    .into(),
+            );
+            lines.push("".into());
+        }
+
+        lines.push("  Press Enter to continue".dim().into());
+        lines.push("  Press Esc to go back".dim().into());
+        if let Some(error) = self.error_message() {
+            lines.push("".into());
+            lines.push(error.red().into());
+        }
+
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .render(area, buf);
+    }
+
     fn render_local_provider_unavailable(
         &self,
         area: Rect,
@@ -2233,14 +2290,17 @@ impl AuthModeWidget {
             }
         }
 
-        if let Some((provider_id, provider_name, model, effort, fallback_state)) = should_persist {
-            self.persist_provider_model_selection(
-                provider_id,
-                provider_name,
-                model,
-                effort,
-                fallback_state,
-            );
+        if let Some((provider_id, provider_name, model, effort, _fallback_state)) = should_persist {
+            let configured_provider = self.configured_model_providers.get(&provider_id);
+            *self.sign_in_state.write().unwrap() =
+                SignInState::ProviderHarnessSelection(ProviderHarnessSelectionState::new(
+                    provider_id,
+                    provider_name,
+                    configured_provider,
+                    model,
+                    effort,
+                ));
+            self.request_frame.schedule_frame();
         } else if should_request_frame {
             self.request_frame.schedule_frame();
         }
@@ -2285,12 +2345,71 @@ impl AuthModeWidget {
             }
         }
 
-        if let Some((provider_id, provider_name, model, effort, fallback_state)) = should_persist {
+        if let Some((provider_id, provider_name, model, effort, _fallback_state)) = should_persist {
+            let configured_provider = self.configured_model_providers.get(&provider_id);
+            *self.sign_in_state.write().unwrap() =
+                SignInState::ProviderHarnessSelection(ProviderHarnessSelectionState::new(
+                    provider_id,
+                    provider_name,
+                    configured_provider,
+                    model,
+                    effort,
+                ));
+            self.request_frame.schedule_frame();
+        } else if should_request_frame {
+            self.request_frame.schedule_frame();
+        }
+        true
+    }
+
+    fn handle_provider_harness_selection_key_event(&mut self, key_event: &KeyEvent) -> bool {
+        let initial_state = self.initial_provider_auth_state();
+        let mut should_request_frame = false;
+        let mut should_persist = None;
+
+        {
+            let mut guard = self.sign_in_state.write().unwrap();
+            let SignInState::ProviderHarnessSelection(state) = &mut *guard else {
+                return false;
+            };
+
+            match key_event.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    state.move_selection(/*delta*/ -1);
+                    should_request_frame = true;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    state.move_selection(/*delta*/ 1);
+                    should_request_frame = true;
+                }
+                KeyCode::Esc => {
+                    *guard = initial_state;
+                    self.set_error(/*message*/ None);
+                    should_request_frame = true;
+                }
+                KeyCode::Enter => {
+                    should_persist = Some((
+                        state.provider_id.clone(),
+                        state.provider_name.clone(),
+                        state.model.clone(),
+                        state.effort,
+                        state.selected_harness(),
+                        SignInState::ProviderHarnessSelection(state.clone()),
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        if let Some((provider_id, provider_name, model, effort, harness, fallback_state)) =
+            should_persist
+        {
             self.persist_provider_model_selection(
                 provider_id,
                 provider_name,
                 model,
                 effort,
+                harness,
                 fallback_state,
             );
         } else if should_request_frame {
@@ -2349,14 +2468,17 @@ impl AuthModeWidget {
             }
         }
 
-        if let Some((provider_id, provider_name, model, fallback_state)) = should_persist {
-            self.persist_provider_model_selection(
-                provider_id,
-                provider_name,
-                model,
-                /*effort*/ None,
-                fallback_state,
-            );
+        if let Some((provider_id, provider_name, model, _fallback_state)) = should_persist {
+            let configured_provider = self.configured_model_providers.get(&provider_id);
+            *self.sign_in_state.write().unwrap() =
+                SignInState::ProviderHarnessSelection(ProviderHarnessSelectionState::new(
+                    provider_id,
+                    provider_name,
+                    configured_provider,
+                    model,
+                    /*effort*/ None,
+                ));
+            self.request_frame.schedule_frame();
         } else if should_request_frame {
             self.request_frame.schedule_frame();
         }
@@ -2926,6 +3048,7 @@ impl StepStateProvider for AuthModeWidget {
             | SignInState::LocalProviderUnavailable(_)
             | SignInState::ProviderModelSelection(_)
             | SignInState::ProviderReasoningSelection(_)
+            | SignInState::ProviderHarnessSelection(_)
             | SignInState::ManualModelEntry(_)
             | SignInState::ApiKeyEntry(_)
             | SignInState::ContinueInBrowser(_)
@@ -2963,6 +3086,9 @@ impl WidgetRef for AuthModeWidget {
             }
             SignInState::ProviderReasoningSelection(state) => {
                 self.render_provider_reasoning_selection(area, buf, state);
+            }
+            SignInState::ProviderHarnessSelection(state) => {
+                self.render_provider_harness_selection(area, buf, state);
             }
             SignInState::ManualModelEntry(state) => {
                 self.render_manual_model_entry(area, buf, state);
@@ -3589,6 +3715,33 @@ mod tests {
             Terminal::new(VT100Backend::new(/*width*/ 96, /*height*/ 16)).expect("terminal");
         terminal
             .draw(|f| widget.render_provider_model_selection(f.area(), f.buffer_mut(), &state))
+            .expect("draw");
+
+        insta::assert_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn provider_harness_selection_renders_snapshot() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let (widget, _tmp) = runtime.block_on(widget_open_interpreter());
+        let provider = ModelProviderInfo {
+            name: "OpenRouter".to_string(),
+            base_url: Some("https://openrouter.ai/api/v1".to_string()),
+            wire_api: codex_model_provider_info::WireApi::Chat,
+            ..Default::default()
+        };
+        let state = ProviderHarnessSelectionState::new(
+            "openrouter".to_string(),
+            "OpenRouter".to_string(),
+            Some(&provider),
+            "anthropic/claude-sonnet-4.6".to_string(),
+            Some(ReasoningEffortConfig::Medium),
+        );
+
+        let mut terminal =
+            Terminal::new(VT100Backend::new(/*width*/ 96, /*height*/ 20)).expect("terminal");
+        terminal
+            .draw(|f| widget.render_provider_harness_selection(f.area(), f.buffer_mut(), &state))
             .expect("draw");
 
         insta::assert_snapshot!(terminal.backend());

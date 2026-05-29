@@ -126,6 +126,8 @@ pub enum ExecCapturePolicy {
     /// Shell-like execs keep the historical output cap and timeout behavior.
     #[default]
     ShellTool,
+    /// Shell-like execs keep timeout behavior but buffer full child output.
+    ShellToolFullOutput,
     /// Trusted internal helpers can buffer the full child output in memory
     /// without the shell-oriented output cap or exec-expiration behavior.
     FullBuffer,
@@ -195,6 +197,7 @@ impl ExecCapturePolicy {
     fn retained_bytes_cap(self) -> Option<usize> {
         match self {
             Self::ShellTool => Some(EXEC_OUTPUT_MAX_BYTES),
+            Self::ShellToolFullOutput => None,
             Self::FullBuffer => None,
         }
     }
@@ -206,6 +209,7 @@ impl ExecCapturePolicy {
     fn uses_expiration(self) -> bool {
         match self {
             Self::ShellTool => true,
+            Self::ShellToolFullOutput => true,
             Self::FullBuffer => false,
         }
     }

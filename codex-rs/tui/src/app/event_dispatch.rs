@@ -560,6 +560,9 @@ impl App {
             AppEvent::OpenReasoningPopup { model } => {
                 self.chat_widget.open_reasoning_popup(model);
             }
+            AppEvent::OpenHarnessPopup { model, effort } => {
+                self.chat_widget.open_harness_popup(model, effort);
+            }
             AppEvent::OpenPlanReasoningScopePrompt { model, effort } => {
                 self.chat_widget
                     .open_plan_reasoning_scope_prompt(model, effort);
@@ -669,6 +672,19 @@ impl App {
                     provider_id,
                     provider_name,
                     model,
+                );
+            }
+            AppEvent::OpenHarnessPopupForProvider {
+                provider_id,
+                provider_name,
+                model,
+                effort,
+            } => {
+                self.chat_widget.open_harness_popup_for_provider(
+                    provider_id,
+                    provider_name,
+                    model,
+                    effort,
                 );
             }
             AppEvent::StartLocalProviderAndLoadModels { loading_state } => {
@@ -1093,15 +1109,22 @@ impl App {
                     let _ = (preset, mode);
                 }
             }
-            AppEvent::PersistModelSelection { model, effort } => {
+            AppEvent::PersistModelSelection {
+                model,
+                effort,
+                harness,
+            } => {
                 let profile = self.active_profile.as_deref();
                 match ConfigEditsBuilder::new(&self.config.codex_home)
                     .with_profile(profile)
                     .set_model(Some(model.as_str()), effort)
+                    .set_harness(harness.as_deref())
                     .apply()
                     .await
                 {
                     Ok(()) => {
+                        self.config.harness = harness.clone();
+                        self.chat_widget.set_harness(harness.clone());
                         let effort_label = effort
                             .map(|selected_effort| selected_effort.to_string())
                             .unwrap_or_else(|| "default".to_string());
@@ -1111,6 +1134,10 @@ impl App {
                             message.push(' ');
                             message.push_str(label);
                         }
+                        let harness_label = harness.as_deref().unwrap_or("native");
+                        message.push_str(" with ");
+                        message.push_str(harness_label);
+                        message.push_str(" harness");
                         if let Some(profile) = profile {
                             message.push_str(" for ");
                             message.push_str(profile);
@@ -1134,11 +1161,49 @@ impl App {
                     }
                 }
             }
+            AppEvent::PersistHarnessSelection { harness } => {
+                let profile = self.active_profile.as_deref();
+                match ConfigEditsBuilder::new(&self.config.codex_home)
+                    .with_profile(profile)
+                    .set_harness(harness.as_deref())
+                    .apply()
+                    .await
+                {
+                    Ok(()) => {
+                        self.config.harness = harness.clone();
+                        self.chat_widget.set_harness(harness.clone());
+                        let harness_label = harness.as_deref().unwrap_or("Open Interpreter");
+                        let mut message = format!("Harness changed to {harness_label}");
+                        if let Some(profile) = profile {
+                            message.push_str(" for ");
+                            message.push_str(profile);
+                            message.push_str(" profile");
+                        }
+                        self.chat_widget.add_info_message(message, /*hint*/ None);
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            error = %err,
+                            "failed to persist harness selection"
+                        );
+                        if let Some(profile) = profile {
+                            self.chat_widget.add_error_message(format!(
+                                "Failed to save harness for profile `{profile}`: {err}"
+                            ));
+                        } else {
+                            self.chat_widget.add_error_message(format!(
+                                "Failed to save default harness: {err}"
+                            ));
+                        }
+                    }
+                }
+            }
             AppEvent::PersistProviderModelSelection {
                 provider_id,
                 provider_name,
                 model,
                 effort,
+                harness,
             } => {
                 let mut edits = self
                     .config
@@ -1154,6 +1219,7 @@ impl App {
                     self.config.model_providers.get(provider_id.as_str()),
                     Some(model.as_str()),
                     effort,
+                    harness.as_deref(),
                 ));
                 match self
                     .write_app_server_config_batch(
@@ -1183,15 +1249,8 @@ impl App {
                             .get(provider_id.as_str())
                             .cloned()
                         {
-                            self.config.model_provider = provider.clone();
-                            self.config.harness = preferred_harness_for_provider_model(
-                                provider_id.as_str(),
-                                Some(provider.name.as_str()),
-                                provider.base_url.as_deref(),
-                                Some(provider.wire_api),
-                                Some(model.as_str()),
-                            )
-                            .map(ToOwned::to_owned);
+                            self.config.model_provider = provider;
+                            self.config.harness = harness.clone();
                         } else {
                             self.config.harness = None;
                         }
@@ -1199,6 +1258,7 @@ impl App {
                         self.config.model_reasoning_effort = effort;
                         self.chat_widget.set_model(&model);
                         self.chat_widget.set_reasoning_effort(effort);
+                        self.chat_widget.set_harness(harness);
                         self.start_fresh_session_with_summary_hint(
                             tui, app_server, /*session_start_source*/ None,
                             /*initial_user_message*/ None,

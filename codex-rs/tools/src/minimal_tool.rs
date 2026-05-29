@@ -29,6 +29,24 @@ pub fn create_minimal_bash_tool() -> ToolSpec {
     })
 }
 
+pub fn create_mini_swe_agent_bash_tool() -> ToolSpec {
+    ToolSpec::Function(ResponsesApiTool {
+        name: "bash".to_string(),
+        description: "Execute a bash command".to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            BTreeMap::from([(
+                "command".to_string(),
+                JsonSchema::string(Some("The bash command to execute".to_string())),
+            )]),
+            Some(vec!["command".to_string()]),
+            None,
+        ),
+        output_schema: None,
+    })
+}
+
 pub fn create_minimal_str_replace_editor_tool() -> ToolSpec {
     ToolSpec::Function(ResponsesApiTool {
         name: "str_replace_editor".to_string(),

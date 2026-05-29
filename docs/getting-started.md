@@ -1,5 +1,5 @@
 ---
-title: Open Interpreter
+title: Overview
 description: A terminal coding agent that runs in your projects, with the model and provider you choose.
 ---
 
@@ -9,6 +9,24 @@ on your behalf.
 
 It is built on top of Codex and stays provider agnostic, so you can plug in
 OpenAI, Anthropic, a local model, or anything else.
+
+## Install
+
+```bash
+curl -fsSL https://openinterpreter.com/install | sh
+```
+
+On Windows:
+
+```powershell
+irm https://openinterpreter.com/install.ps1 | iex
+```
+
+Then open a project and run:
+
+```bash
+interpreter
+```
 
 <CardGroup cols={2}>
   <Card title="Install" href="/docs/install">
@@ -35,6 +53,9 @@ OpenAI, Anthropic, a local model, or anything else.
   task. Switch any time with `/model`.
 - **Resumes long sessions.** Pick up earlier work with
   `interpreter resume --last`.
+- **Keeps the Codex surface.** Use familiar `exec`, sessions, MCP,
+  `AGENTS.md`, skills, hooks, permissions, and subagents with Open
+  Interpreter's provider-agnostic model picker.
 
 ## How it feels
 
@@ -61,5 +82,11 @@ escalates beyond the current sandbox.
   </Card>
   <Card title="Sandbox & approvals" href="/docs/sandbox">
     Decide what runs automatically and what asks first.
+  </Card>
+  <Card title="CLI reference" href="/docs/cli-reference">
+    See the public `interpreter` commands and flags.
+  </Card>
+  <Card title="Harness" href="/docs/harness">
+    Use harness-shaped compatibility modes intentionally.
   </Card>
 </CardGroup>

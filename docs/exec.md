@@ -1,95 +1,131 @@
 ---
-title: Non-interactive mode
-description: Run Open Interpreter from a script, a pipeline, or CI.
+title: Non-Interactive Mode
+description: Run Open Interpreter from scripts, CI, and pipelines with interpreter exec.
 ---
 
-Use `interpreter exec` when you want a single prompt to run start-to-finish
-without the terminal UI. The final result goes to `stdout`. Progress
-streams to `stderr` so you can pipe the result anywhere.
+Use `interpreter exec` when you want one task to run to completion without the
+full-screen TUI.
 
 ```bash
 interpreter exec "summarize the changes in the last commit"
 ```
 
-## Common flags
+The human-readable final answer prints to stdout. Progress and diagnostics use
+stderr unless you choose JSON output.
 
-| Flag                | What it does                                         |
-| ------------------- | ---------------------------------------------------- |
-| `--json`            | Emit JSON Lines so other tools can parse the output  |
-| `--output-schema`   | Constrain the final answer to a JSON Schema          |
-| `--full-auto`       | Allow file edits without prompting                   |
-| `--sandbox <mode>`  | Override sandbox mode for this run                   |
-| `--ephemeral`       | Skip writing a session record                        |
-| `--profile <name>`  | Use a named config profile                           |
+## Input
 
-Run `interpreter exec --help` for the full list.
-
-## Piping in context
-
-You can feed `stdin` as additional context for the prompt:
+Pass the prompt as an argument:
 
 ```bash
-git diff | interpreter exec "explain this diff in plain English"
+interpreter exec "find one bug in src/parser.rs"
 ```
 
-Or pass the whole prompt on `stdin`:
+Read the prompt from stdin:
 
 ```bash
 cat task.md | interpreter exec -
 ```
 
-## Structured output
-
-Pair `--json` with `--output-schema` to get a structured answer your
-script can parse:
+Pipe context into a prompt:
 
 ```bash
-echo '{"type":"object","properties":{"bug":{"type":"string"},"fix":{"type":"string"}},"required":["bug","fix"]}' > schema.json
-
-interpreter exec --json --output-schema schema.json \
-  "find one bug in src/parser.rs and propose a fix"
+git diff | interpreter exec "explain this diff and flag risky changes"
 ```
 
-The final stdout line is a single JSON object that matches the schema.
-
-## In CI
-
-API keys are the right default for CI. Set them as secrets, then call
-`interpreter exec`:
-
-<CodeGroup>
-```yaml github-actions.yml
-- name: Triage failing tests
-  env:
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  run: |
-    interpreter exec --json \
-      "look at the failing tests in pytest output and suggest a fix" \
-      < pytest.log > suggestion.json
-```
-
-```bash shell
-OPENAI_API_KEY=$KEY interpreter exec --full-auto \
-  "bump the version in pyproject.toml and write a CHANGELOG entry"
-```
-</CodeGroup>
-
-## Resuming an exec session
-
-Stage longer pipelines by chaining runs:
+Attach images to the first prompt:
 
 ```bash
-interpreter exec "draft a refactor plan for src/parser.rs"
+interpreter exec -i screenshot.png "describe the UI problem"
+```
+
+## Common Flags
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--json` | Emit newline-delimited JSON events. |
+| `--output-schema <file>` | Require the final answer to match a JSON Schema. |
+| `--output-last-message, -o <file>` | Write the final assistant message to a file. |
+| `--color always|never|auto` | Control ANSI color. |
+| `--sandbox <mode>` | Override sandbox mode. |
+| `--ask-for-approval <mode>` | Override approval policy. |
+| `--profile <name>` | Use a config profile. |
+| `--ephemeral` | Do not persist a session record. |
+| `--skip-git-repo-check` | Allow running outside a Git repo. |
+| `--ignore-user-config` | Skip user config for this run. |
+| `--ignore-rules` | Skip execpolicy rules. |
+| `--verify` | Run an additional completion-check turn before exiting. |
+| `--timeout <seconds>` | Send time remaining reminders during the run. |
+
+## JSON Events
+
+Use `--json` for automation:
+
+```bash
+interpreter exec --json "list the files this task would touch"
+```
+
+Each line is a JSON event representing progress, tool calls, file changes,
+reasoning summaries, or the final message.
+
+## Structured Output
+
+Pair `--output-schema` with a schema file:
+
+```json schema.json
+{
+  "type": "object",
+  "properties": {
+    "risk": { "type": "string" },
+    "recommended_fix": { "type": "string" }
+  },
+  "required": ["risk", "recommended_fix"]
+}
+```
+
+```bash
+interpreter exec --output-schema schema.json \
+  "inspect the current diff and return the highest risk"
+```
+
+## Resume Exec Work
+
+Continue the most recent non-interactive session:
+
+```bash
 interpreter exec resume --last "now apply the plan"
 ```
 
-`resume --last` continues the most recent session.
-
-## Logging
-
-`interpreter exec` defaults to `RUST_LOG=error` and prints inline. If you
-want more detail:
+Or resume a specific session id:
 
 ```bash
-RUST_LOG=info interpreter exec "..."
+interpreter exec resume <SESSION_ID> "continue"
+```
+
+Add `--all` to search sessions outside the current working directory.
+
+## Review From Exec
+
+Run a code-review pass without opening the TUI:
+
+```bash
+interpreter exec review --uncommitted
+interpreter exec review --base main
+interpreter exec review --commit abc123
+```
+
+For custom review instructions, pass text or `-` to read stdin.
+
+## CI Pattern
+
+Use API-key authentication and keep the sandbox narrow:
+
+```yaml
+- name: Review patch
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  run: |
+    interpreter exec --json --sandbox read-only \
+      "review this pull request diff for regressions" \
+      < pr.diff > review.jsonl
 ```

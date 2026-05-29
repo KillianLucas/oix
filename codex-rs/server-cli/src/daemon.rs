@@ -28,9 +28,8 @@ pub async fn ensure_local_app_server_url_with_startup_message(
 ) -> anyhow::Result<String> {
     let show_starting_message = std::io::stderr().is_terminal();
     let startup_message = match local_app_server_status().await {
-        Ok(None) => "Starting Open Interpreter daemon. This only happens once...",
         Ok(Some(_)) => "Connecting to Open Interpreter daemon...",
-        Err(_) => "Starting Open Interpreter daemon...",
+        Ok(None) | Err(_) => "Starting Open Interpreter daemon...",
     };
     if show_starting_message {
         eprint!("\r{startup_message}");

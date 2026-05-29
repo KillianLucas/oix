@@ -101,6 +101,14 @@ mod tests {
     }
 
     #[test]
+    fn harness_command_resolves_for_dispatch() {
+        assert_eq!(
+            find_builtin_command("harness", all_enabled_flags()),
+            Some(SlashCommand::Harness)
+        );
+    }
+
+    #[test]
     fn stop_command_resolves_for_dispatch() {
         assert_eq!(
             find_builtin_command("stop", all_enabled_flags()),

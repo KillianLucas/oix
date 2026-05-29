@@ -121,6 +121,7 @@ pub use mcp_resource_tool::create_list_mcp_resources_tool;
 pub use mcp_resource_tool::create_read_mcp_resource_tool;
 pub use mcp_tool::mcp_call_tool_result_output_schema;
 pub use mcp_tool::parse_mcp_tool;
+pub use minimal_tool::create_mini_swe_agent_bash_tool;
 pub use minimal_tool::create_minimal_bash_tool;
 pub use minimal_tool::create_minimal_str_replace_editor_tool;
 pub use plan_tool::create_update_plan_tool;

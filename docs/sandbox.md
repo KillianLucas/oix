@@ -1,101 +1,95 @@
 ---
-title: Sandbox & approvals
-description: Two layers that decide what the agent can run on its own.
+title: Sandbox & Approvals
+description: Control what local commands can do and when Open Interpreter asks first.
 ---
 
-Open Interpreter runs commands and edits files on your behalf. Two
-controls decide what is allowed and what asks first:
+Open Interpreter has two separate safety controls:
 
-- **Sandbox mode** sets the technical boundary. Files and network access.
-- **Approval mode** sets the human checkpoint. When to pause and ask.
+- Sandbox mode controls the technical boundary for local command execution.
+- Approval policy controls when the agent pauses and asks you.
 
-They work together. The sandbox decides what is even possible. Approvals
-decide which possible actions still need a yes from you.
+Use `/permissions` in the TUI to inspect or change the active posture.
 
-## Sandbox modes
+## Sandbox Modes
 
-| Mode                 | What the agent can do                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `read-only`          | Read files and answer questions. No edits, no commands, no network. The default.            |
-| `workspace-write`    | Edit files and run commands inside the current workspace. Network is off unless you opt in. |
-| `danger-full-access` | No technical limits. Edit anywhere, hit the network freely.                                 |
+| Mode | Behavior |
+| ---- | -------- |
+| `read-only` | Commands can inspect allowed files but cannot write. |
+| `workspace-write` | Commands can write inside the active workspace roots. Network is off unless enabled. |
+| `danger-full-access` | No local sandbox boundary. Use only in an environment you intentionally trust. |
 
-Set the default in `config.toml`:
+Set a default:
 
 ```toml
 sandbox_mode = "workspace-write"
 ```
 
-Override for a single run:
+Override once:
 
 ```bash
 interpreter --sandbox read-only "audit the auth flow"
 ```
 
-### Workspace-write extras
+## Approval Policies
 
-You can grant the sandbox extra read paths without leaving the session:
-
-```
-/sandbox-add-read-dir /Users/me/notes
-```
-
-Or up front in `config.toml`:
-
-```toml
-[sandbox]
-extra_read_dirs = ["/Users/me/notes", "/var/log"]
-```
-
-## Approval modes
-
-| Mode          | When the agent stops to ask                                                          |
-| ------------- | ------------------------------------------------------------------------------------ |
-| `untrusted`   | Safe reads run on their own. Anything that could change state asks first.            |
-| `on-request`  | The agent runs whatever the sandbox allows. It asks before stepping outside it. The default. |
-| `never`       | No prompts. The sandbox is the only guardrail.                                       |
-
-Set it in `config.toml`:
+| Policy | Behavior |
+| ------ | -------- |
+| `untrusted` | Ask before actions that could change state. |
+| `on-request` | Run inside the sandbox and ask before escalation. |
+| `never` | Do not ask. The sandbox is the only guardrail. |
 
 ```toml
 approval_policy = "on-request"
 ```
 
-Or change it mid-session:
+`--yolo` and `--dangerously-bypass-approvals-and-sandbox` remove both approval
+prompts and sandboxing. Use them only inside an external sandbox such as a
+throwaway VM or isolated container.
 
+## Workspace Write
+
+Grant extra writable roots for a session:
+
+```bash
+interpreter --add-dir ../shared-lib
 ```
-/permissions
+
+Enable network for the older workspace-write sandbox:
+
+```toml
+[sandbox_workspace_write]
+network_access = true
 ```
 
-## Picking a combo
+For precise network allowlists, use [Permissions](/docs/permissions).
 
-| Goal                         | Sandbox            | Approvals     |
-| ---------------------------- | ------------------ | ------------- |
-| Browse a new codebase safely | `read-only`        | `on-request`  |
-| Day-to-day work              | `workspace-write`  | `on-request`  |
-| Trusted automation           | `workspace-write`  | `never`       |
-| Quick local hacking          | `danger-full-access` | `never`     |
+## Protected Paths
 
-If you are unsure, start with `workspace-write` and `on-request`. You
-get fast iteration with a guardrail before anything reaches outside the
-project.
+Even inside writable roots, sensitive control directories such as `.git/` and
+agent configuration directories should be treated as protected. If the agent
+needs to change them, review the request closely.
 
-<Warning>
-`danger-full-access` removes the sandbox. The agent can change files
-anywhere, run any command, and use the network freely. Pair it with
-strong approvals or use it only on machines you can throw away.
-</Warning>
+## Operating System Enforcement
 
-## During a session
+Open Interpreter uses the same local sandbox architecture as the Codex CLI
+surface:
 
-When the agent wants to run something that needs a yes:
+| Platform | Enforcement model |
+| -------- | ----------------- |
+| macOS | Seatbelt profiles. |
+| Linux / WSL | Bubblewrap, seccomp, and related kernel sandboxing where available. |
+| Windows | Native Windows sandboxing where configured; WSL uses the Linux model. |
 
-| Key   | What it does                                           |
-| ----- | ------------------------------------------------------ |
-| `y`   | Approve once                                           |
-| `a`   | Approve and don't ask again for that command this session |
-| `n`   | Deny                                                   |
-| `Esc` | Deny and tell the agent what to do differently         |
+When a requested policy cannot be enforced, Open Interpreter should fail closed
+rather than silently running unsandboxed.
 
-Approvals you remember last for the current session only. Quit and the
-agent asks again next time.
+## Recommended Defaults
+
+| Situation | Suggested settings |
+| --------- | ------------------ |
+| Inspecting unfamiliar code | `sandbox_mode = "read-only"`, `approval_policy = "on-request"` |
+| Day-to-day trusted repo work | `workspace-write` plus `on-request` |
+| CI in an isolated runner | `workspace-write` plus `never` |
+| Disposable full-access environment | `danger-full-access` plus `never` |
+
+If you are unsure, start with workspace-write and on-request.

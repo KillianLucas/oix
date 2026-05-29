@@ -1,83 +1,77 @@
 ---
 title: AGENTS.md
-description: Give Open Interpreter project-specific instructions it always reads.
+description: Durable project instructions that Open Interpreter reads automatically.
 ---
 
-`AGENTS.md` is a Markdown file you keep in your repo. Open Interpreter
-reads it before every session and treats it as the team norms for that
-project.
+`AGENTS.md` is the project instruction file. Put stable guidance there instead
+of repeating it in every prompt.
 
-Use it for the things you would otherwise repeat in every prompt:
+Use it for:
 
-- Build and test commands the agent should prefer
-- Lint and formatting rules
-- Conventions you do not want broken
-- Directories the agent should be careful with
-- Anything a new contributor would want to know on day one
+- Build, test, lint, and format commands
+- Project architecture notes
+- Code style and API conventions
+- Files or directories that need care
+- Release, migration, or review expectations
 
-## Create one fast
+## Create One
 
-Run this from inside a session and the agent generates a starting
-`AGENTS.md` based on what it sees in the repo:
+Inside the TUI:
 
-```
+```text
 /init
 ```
 
-Edit the result to match how your team actually works.
+Open Interpreter inspects the repository and drafts a starting `AGENTS.md`.
+Edit it down to the rules that should survive across sessions.
 
-## Where it lives
+## Scope and Precedence
 
-Open Interpreter looks for `AGENTS.md` in two places:
+Open Interpreter loads:
 
-| Scope     | Path                                                 |
-| --------- | ---------------------------------------------------- |
-| Global    | `~/.openinterpreter/AGENTS.md`                       |
-| Project   | Every directory from the Git root down to your `cwd` |
+| Scope | Path |
+| ----- | ---- |
+| Global | `~/.openinterpreter/AGENTS.md` |
+| Project | `AGENTS.md` files from the repository root down to the current working directory |
 
-Files closer to your working directory take priority over files higher
-up. The global file is the lowest priority and applies everywhere.
+More specific files override or supplement broader ones. A file closer to your
+current directory is usually more relevant than one near the root.
 
-## Override temporarily
+## Temporary Override
 
-Need to swap the global file for a one-off run? Drop in
-`~/.openinterpreter/AGENTS.override.md`. While it exists, it replaces the
-global `AGENTS.md`. Delete it to go back.
+Create this file to replace the global instructions for local testing:
 
-## Size limits
+```text
+~/.openinterpreter/AGENTS.override.md
+```
 
-The combined contents are capped (32 KiB by default). Files closer to
-your working directory are kept first, so directory-specific notes always
-make it in. Adjust the cap with `project_doc_max_bytes` in `config.toml`
-if you have a real reason to.
+Delete it to return to the normal global file.
 
-## A good starting point
+## Size
+
+The combined project instructions are capped by `project_doc_max_bytes`.
+Directory-specific files are prioritized so nearby guidance survives when the
+limit is reached.
+
+## Example
 
 ```markdown
-# Project notes
+# Project Instructions
 
-## How to build
-- `pnpm install`
-- `pnpm dev` for local
-- `pnpm test` runs Jest plus Playwright
+## Commands
+- `pnpm test` runs unit tests.
+- `pnpm lint` must pass before final changes.
+- Use `pnpm typecheck` after editing TypeScript types.
 
 ## Conventions
-- TypeScript strict mode is on, no `any`
-- Server code lives under `src/server`, client under `src/app`
-- Database migrations are owned by the data team. Ask before adding one.
+- Keep server code under `src/server`.
+- Keep UI components small and colocated with their tests.
+- Prefer existing helpers in `src/lib`.
 
-## Be careful
-- Do not edit anything under `vendor/`
-- The `scripts/release.sh` flow is run by CI, not locally
+## Cautions
+- Do not edit generated files under `src/generated`.
+- Ask before changing database migrations.
 ```
 
-## Hierarchical guidance
-
-When the `child_agents_md` feature flag is on, Open Interpreter also
-emits guidance about scope and precedence even when no `AGENTS.md` is
-present. Enable it under `[features]` in `config.toml`:
-
-```toml
-[features]
-child_agents_md = true
-```
+Good `AGENTS.md` files are short, specific, and durable. Put temporary task
+details in the prompt, not in project instructions.

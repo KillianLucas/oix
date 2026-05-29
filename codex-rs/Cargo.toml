@@ -5,6 +5,7 @@ members = [
     "agent-identity",
     "backend-client",
     "ansi-escape",
+    "acp-server",
     "async-utils",
     "app-server",
     "app-server-client",
@@ -117,6 +118,7 @@ license = "Apache-2.0"
 # Internal
 app_test_support = { path = "app-server/tests/common" }
 codex-analytics = { path = "analytics" }
+codex-acp-server = { path = "acp-server" }
 codex-agent-identity = { path = "agent-identity" }
 codex-ansi-escape = { path = "ansi-escape" }
 codex-api = { path = "codex-api" }
@@ -219,6 +221,7 @@ mcp_test_support = { path = "mcp-server/tests/common" }
 
 # External
 age = "0.11.1"
+agent-client-protocol = { version = "=0.12.1", features = ["unstable"] }
 allocative = "0.3.3"
 ansi-to-tui = "7.0.0"
 anyhow = "1"
@@ -372,7 +375,7 @@ toml = "0.9.5"
 toml_edit = "0.24.0"
 tracing = "0.1.44"
 tracing-appender = "0.2.3"
-tracing-opentelemetry = "0.33.0"
+tracing-opentelemetry = "0.32.0"
 tracing-subscriber = "0.3.22"
 tracing-test = "0.2.5"
 tonic = { version = "0.14.3", default-features = false, features = ["channel", "codegen"] }

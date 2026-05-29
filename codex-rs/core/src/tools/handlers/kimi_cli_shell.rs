@@ -27,8 +27,10 @@ use codex_protocol::error::SandboxErr;
 use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::SandboxPermissions;
 use codex_protocol::protocol::ExecCommandSource;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+use std::path::Path;
 
 pub struct KimiShellHandler;
 
@@ -44,6 +46,7 @@ const KIMI_SHELL_TRUNCATION_MARKER: &str = "[...truncated]";
 #[derive(Deserialize)]
 struct KimiShellArgs {
     command: String,
+    cwd: Option<String>,
     timeout: Option<u64>,
     run_in_background: Option<bool>,
     description: Option<String>,
@@ -78,8 +81,9 @@ impl ToolHandler for KimiShellHandler {
             ));
         };
         let args: KimiShellArgs = parse_kimi_arguments(&arguments)?;
+        let kimi_code_bash = tool_name.display() == "Bash";
         if args.run_in_background.unwrap_or(false) {
-            return run_background_shell(session, turn, call_id, args).await;
+            return run_background_shell(session, turn, call_id, args, kimi_code_bash).await;
         }
         if args.timeout.unwrap_or(KIMI_SHELL_DEFAULT_TIMEOUT_SECONDS)
             > KIMI_SHELL_MAX_FOREGROUND_TIMEOUT_SECONDS
@@ -94,18 +98,21 @@ impl ToolHandler for KimiShellHandler {
             ));
         };
         let timeout_ms = Some(kimi_shell_timeout_ms(args.timeout));
+        let cwd = kimi_shell_cwd(turn.as_ref(), args.cwd.as_deref())?;
         let command = session
             .user_shell()
             .derive_exec_args(&args.command, turn.tools_config.allow_login_shell);
+        let mut exec_env = create_env(
+            &turn.shell_environment_policy,
+            Some(session.conversation_id),
+        );
+        apply_kimi_code_fake_time_env(&mut exec_env, kimi_code_bash);
         let exec_params = ExecParams {
             command: command.clone(),
-            cwd: turn.cwd.clone(),
+            cwd: cwd.clone(),
             expiration: timeout_ms.into(),
             capture_policy: ExecCapturePolicy::ShellTool,
-            env: create_env(
-                &turn.shell_environment_policy,
-                Some(session.conversation_id),
-            ),
+            env: exec_env,
             network: turn.network.clone(),
             sandbox_permissions: SandboxPermissions::UseDefault,
             windows_sandbox_level: turn.windows_sandbox_level,
@@ -194,12 +201,17 @@ impl ToolHandler for KimiShellHandler {
                     .emit(event_ctx, ToolEventStage::Success(output.clone()))
                     .await;
                 if output.exit_code == 0 {
-                    Ok(kimi_shell_success_output(&output, turn.as_ref()))
+                    Ok(kimi_shell_success_output(
+                        &output,
+                        turn.as_ref(),
+                        kimi_code_bash,
+                    ))
                 } else {
                     Ok(kimi_shell_failed_output(
                         &output,
                         turn.as_ref(),
                         args.timeout.is_none(),
+                        kimi_code_bash,
                     ))
                 }
             }
@@ -216,6 +228,7 @@ impl ToolHandler for KimiShellHandler {
                     &output,
                     turn.as_ref(),
                     args.timeout.is_none(),
+                    kimi_code_bash,
                 ))
             }
             Err(ToolError::Rejected(message)) => {
@@ -246,6 +259,7 @@ async fn run_background_shell(
     turn: std::sync::Arc<TurnContext>,
     call_id: String,
     args: KimiShellArgs,
+    kimi_code_bash: bool,
 ) -> Result<FunctionToolOutput, FunctionCallError> {
     let Some(_environment) = turn.environment.as_ref() else {
         return Err(FunctionCallError::RespondToModel(
@@ -264,6 +278,7 @@ async fn run_background_shell(
         })?
         .to_string();
     let timeout_ms = kimi_shell_timeout_ms(args.timeout);
+    let cwd = kimi_shell_cwd(turn.as_ref(), args.cwd.as_deref())?;
     let effective_permissions = apply_granted_turn_permissions(
         session.as_ref(),
         turn.cwd.as_path(),
@@ -284,7 +299,7 @@ async fn run_background_shell(
                 process_id,
                 yield_time_ms: KIMI_SHELL_BACKGROUND_START_YIELD_MS,
                 max_output_tokens: None,
-                workdir: Some(turn.cwd.clone()),
+                workdir: Some(cwd.clone()),
                 network: turn.network.clone(),
                 tty: false,
                 sandbox_permissions: effective_permissions.sandbox_permissions,
@@ -313,12 +328,14 @@ async fn run_background_shell(
         Ok(kimi_shell_success_output(
             &exec_command_output_to_shell_output(output),
             turn.as_ref(),
+            kimi_code_bash,
         ))
     } else {
         Ok(kimi_shell_failed_output(
             &exec_command_output_to_shell_output(output),
             turn.as_ref(),
             args.timeout.is_none(),
+            kimi_code_bash,
         ))
     }
 }
@@ -343,6 +360,51 @@ fn kimi_shell_timeout_ms(timeout_seconds: Option<u64>) -> u64 {
         .unwrap_or(KIMI_SHELL_DEFAULT_TIMEOUT_SECONDS)
         .saturating_mul(1000)
         .min(KIMI_SHELL_MAX_BACKGROUND_TIMEOUT_MS)
+}
+
+fn kimi_shell_cwd(
+    turn: &TurnContext,
+    raw_cwd: Option<&str>,
+) -> Result<AbsolutePathBuf, FunctionCallError> {
+    let Some(raw_cwd) = raw_cwd else {
+        return Ok(turn.cwd.clone());
+    };
+    let path = Path::new(raw_cwd);
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        turn.cwd.as_path().join(path)
+    };
+    AbsolutePathBuf::try_from(joined)
+        .map_err(|err| FunctionCallError::RespondToModel(format!("invalid cwd `{raw_cwd}`: {err}")))
+}
+
+fn apply_kimi_code_fake_time_env(
+    env: &mut std::collections::HashMap<String, String>,
+    kimi_code_bash: bool,
+) {
+    apply_kimi_code_fake_time_env_value(
+        env,
+        kimi_code_bash,
+        std::env::var("OPEN_INTERPRETER_TOOL_FAKE_TIME").ok(),
+    );
+}
+
+fn apply_kimi_code_fake_time_env_value(
+    env: &mut std::collections::HashMap<String, String>,
+    kimi_code_bash: bool,
+    fake_time: Option<String>,
+) {
+    if !kimi_code_bash {
+        return;
+    }
+    let Some(fake_time) = fake_time else {
+        return;
+    };
+    if fake_time.trim().is_empty() {
+        return;
+    }
+    env.insert("FAKETIME".to_string(), fake_time);
 }
 
 fn kimi_background_shell_started_output(
@@ -383,12 +445,18 @@ fn exec_command_output_to_shell_output(
 fn kimi_shell_success_output(
     output: &codex_protocol::exec_output::ExecToolCallOutput,
     _turn: &TurnContext,
+    kimi_code_bash: bool,
 ) -> FunctionToolOutput {
     let KimiShellOutput {
         text: output_text,
         truncated,
     } = kimi_shell_output_text(output);
-    let message = if truncated {
+    if kimi_code_bash && !output_text.is_empty() && !truncated {
+        return FunctionToolOutput::from_text(output_text, Some(true));
+    }
+    let message = if kimi_code_bash && output_text.is_empty() {
+        "Command executed successfully."
+    } else if truncated {
         "<system>Command executed successfully. Output is truncated to fit in the message.</system>"
     } else {
         KIMI_SHELL_EMPTY_OUTPUT
@@ -411,7 +479,14 @@ fn kimi_shell_failed_output(
     output: &codex_protocol::exec_output::ExecToolCallOutput,
     _turn: &TurnContext,
     suppress_timeout_output: bool,
+    kimi_code_bash: bool,
 ) -> FunctionToolOutput {
+    if kimi_code_bash {
+        return FunctionToolOutput::from_text(
+            kimi_code_shell_failed_output_text(output, suppress_timeout_output),
+            Some(false),
+        );
+    }
     let body = kimi_shell_failed_output_body(output, suppress_timeout_output);
     let post_tool_use_response = function_output_items_to_json(&body);
     FunctionToolOutput {
@@ -419,6 +494,48 @@ fn kimi_shell_failed_output(
         success: Some(false),
         post_tool_use_response,
     }
+}
+
+fn kimi_code_shell_failed_output_text(
+    output: &codex_protocol::exec_output::ExecToolCallOutput,
+    suppress_timeout_output: bool,
+) -> String {
+    let KimiShellOutput {
+        text: output_text,
+        truncated,
+    } = if output.timed_out && suppress_timeout_output {
+        KimiShellOutput {
+            text: String::new(),
+            truncated: false,
+        }
+    } else {
+        kimi_shell_output_text(output)
+    };
+    let mut body = String::from("<system>ERROR: Tool execution failed.</system>");
+    if !output_text.is_empty() {
+        body.push('\n');
+        body.push_str(&output_text);
+        if !output_text.ends_with('\n') {
+            body.push('\n');
+        }
+    } else {
+        body.push('\n');
+    }
+    if output.timed_out {
+        body.push_str(&format!(
+            "Command killed by timeout ({}s)",
+            output.duration.as_secs()
+        ));
+    } else {
+        body.push_str(&format!(
+            "Command failed with exit code: {}.",
+            output.exit_code
+        ));
+    }
+    if truncated {
+        body.push_str(" Output is truncated to fit in the message.");
+    }
+    body
 }
 
 fn kimi_shell_failed_output_body(
@@ -696,6 +813,43 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn kimi_code_failed_shell_output_is_single_string() {
+        let output = ExecToolCallOutput {
+            exit_code: 1,
+            stderr: StreamOutput::new("Traceback\n".to_string()),
+            aggregated_output: StreamOutput::new("Traceback\n".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            kimi_code_shell_failed_output_text(&output, /*suppress_timeout_output*/ false),
+            "<system>ERROR: Tool execution failed.</system>\nTraceback\nCommand failed with exit code: 1."
+        );
+    }
+
+    #[test]
+    fn applies_kimi_code_bash_fake_time_to_environment() {
+        let mut env = std::collections::HashMap::new();
+        apply_kimi_code_fake_time_env_value(
+            &mut env,
+            /*kimi_code_bash*/ true,
+            Some("2026-05-28 20:33:46".to_string()),
+        );
+        assert_eq!(
+            env.get("FAKETIME").map(String::as_str),
+            Some("2026-05-28 20:33:46")
+        );
+
+        let mut non_kimi_env = std::collections::HashMap::new();
+        apply_kimi_code_fake_time_env_value(
+            &mut non_kimi_env,
+            /*kimi_code_bash*/ false,
+            Some("2026-05-28 20:33:46".to_string()),
+        );
+        assert!(non_kimi_env.is_empty());
     }
 
     #[test]

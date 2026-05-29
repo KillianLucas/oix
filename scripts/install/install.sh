@@ -615,7 +615,7 @@ install_release() {
   mkdir -p "$RELEASES_DIR"
   rm -rf "$stage_release"
   mkdir -p "$stage_release"
-  for binary in interpreter interpreter-root-tui interpreter-tui interpreter-app-server interpreter-exec; do
+  for binary in interpreter interpreter-root-tui interpreter-tui interpreter-app-server interpreter-acp interpreter-exec; do
     cp "$extracted_root/$binary" "$stage_release/$binary"
     chmod 0755 "$stage_release/$binary"
   done
@@ -636,6 +636,7 @@ release_dir_is_complete() {
     [ -x "$release_dir/interpreter-root-tui" ] &&
     [ -x "$release_dir/interpreter-tui" ] &&
     [ -x "$release_dir/interpreter-app-server" ] &&
+    [ -x "$release_dir/interpreter-acp" ] &&
     [ -x "$release_dir/interpreter-exec" ] &&
     [ "$(basename "$release_dir")" = "$expected_version-$expected_target" ]
 }

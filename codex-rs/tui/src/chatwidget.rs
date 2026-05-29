@@ -69,6 +69,7 @@ use crate::mention_codec::encode_history_mentions;
 use crate::model_catalog::ModelCatalog;
 use crate::model_display::provider_model_label;
 use crate::multi_agents;
+use crate::onboarding::model_selection::harness_choices_for_provider_model;
 use crate::product_branding::ProductBranding;
 use crate::status::RateLimitWindowDisplay;
 use crate::status::StatusAccountDisplay;
@@ -8820,6 +8821,57 @@ impl ChatWidget {
         self.open_model_provider_popup();
     }
 
+    pub(crate) fn open_current_harness_popup(&mut self) {
+        if !self.is_session_configured() {
+            self.add_info_message(
+                "Harness selection is disabled until startup completes.".to_string(),
+                /*hint*/ None,
+            );
+            return;
+        }
+
+        let model = self.current_model().to_string();
+        let provider_id = self.config.model_provider_id.as_str();
+        let provider = self.config.model_providers.get(provider_id);
+        let provider_name = provider
+            .map(|provider| provider.name.as_str())
+            .unwrap_or(provider_id);
+        let current_harness = self.config.harness.as_deref();
+        let choices = harness_choices_for_provider_model(
+            provider_id,
+            Some(provider_name),
+            provider.and_then(|provider| provider.base_url.as_deref()),
+            provider.map(|provider| provider.wire_api),
+            Some(model.as_str()),
+        );
+        let items: Vec<SelectionItem> = choices
+            .into_iter()
+            .map(|choice| {
+                let harness = choice.stored.clone();
+                SelectionItem {
+                    name: choice.label,
+                    description: Some(choice.description),
+                    is_current: harness.as_deref() == current_harness,
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::PersistHarnessSelection {
+                            harness: harness.clone(),
+                        });
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Select Tool Harness".to_string()),
+            subtitle: Some(format!("{provider_name} / {model}")),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            ..Default::default()
+        });
+    }
+
     pub(crate) fn open_personality_popup(&mut self) {
         if !self.is_session_configured() {
             self.add_info_message(
@@ -9222,9 +9274,7 @@ impl ChatWidget {
             let actions: Vec<SelectionAction> =
                 if let Some(effort_for_action) = single_supported_effort {
                     vec![Box::new(move |tx| {
-                        tx.send(AppEvent::UpdateModel(preset_for_action.model.clone()));
-                        tx.send(AppEvent::UpdateReasoningEffort(effort_for_action));
-                        tx.send(AppEvent::PersistModelSelection {
+                        tx.send(AppEvent::OpenHarnessPopup {
                             model: preset_for_action.model.clone(),
                             effort: effort_for_action,
                         });
@@ -9324,13 +9374,60 @@ impl ChatWidget {
                 return;
             }
 
-            tx.send(AppEvent::UpdateModel(model_for_action.clone()));
-            tx.send(AppEvent::UpdateReasoningEffort(effort_for_action));
-            tx.send(AppEvent::PersistModelSelection {
+            tx.send(AppEvent::OpenHarnessPopup {
                 model: model_for_action.clone(),
                 effort: effort_for_action,
             });
         })]
+    }
+
+    pub(crate) fn open_harness_popup(
+        &mut self,
+        model: String,
+        effort: Option<ReasoningEffortConfig>,
+    ) {
+        let provider_id = self.config.model_provider_id.as_str();
+        let provider = self.config.model_providers.get(provider_id);
+        let provider_name = provider
+            .map(|provider| provider.name.as_str())
+            .unwrap_or(provider_id);
+        let choices = harness_choices_for_provider_model(
+            provider_id,
+            Some(provider_name),
+            provider.and_then(|provider| provider.base_url.as_deref()),
+            provider.map(|provider| provider.wire_api),
+            Some(model.as_str()),
+        );
+        let items: Vec<SelectionItem> = choices
+            .into_iter()
+            .map(|choice| {
+                let model = model.clone();
+                let harness = choice.stored.clone();
+                SelectionItem {
+                    name: choice.label,
+                    description: Some(choice.description),
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::UpdateModel(model.clone()));
+                        tx.send(AppEvent::UpdateReasoningEffort(effort));
+                        tx.send(AppEvent::PersistModelSelection {
+                            model: model.clone(),
+                            effort,
+                            harness: harness.clone(),
+                        });
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Select Tool Harness".to_string()),
+            subtitle: Some(format!("{provider_name} / {model}")),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            ..Default::default()
+        });
     }
 
     fn should_prompt_plan_mode_reasoning_scope(
@@ -9402,11 +9499,9 @@ impl ChatWidget {
             }
         })];
         let all_modes_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
-            tx.send(AppEvent::UpdateModel(model.clone()));
-            tx.send(AppEvent::UpdateReasoningEffort(effort));
             tx.send(AppEvent::UpdatePlanModeReasoningEffort(effort));
             tx.send(AppEvent::PersistPlanModeReasoningEffort(effort));
-            tx.send(AppEvent::PersistModelSelection {
+            tx.send(AppEvent::OpenHarnessPopup {
                 model: model.clone(),
                 effort,
             });
@@ -9625,9 +9720,7 @@ impl ChatWidget {
                         effort: choice_effort,
                     });
                 } else {
-                    tx.send(AppEvent::UpdateModel(model_for_action.clone()));
-                    tx.send(AppEvent::UpdateReasoningEffort(choice_effort));
-                    tx.send(AppEvent::PersistModelSelection {
+                    tx.send(AppEvent::OpenHarnessPopup {
                         model: model_for_action.clone(),
                         effort: choice_effort,
                     });
@@ -9682,8 +9775,11 @@ impl ChatWidget {
 
     fn apply_model_and_effort(&self, model: String, effort: Option<ReasoningEffortConfig>) {
         self.apply_model_and_effort_without_persist(model.clone(), effort);
-        self.app_event_tx
-            .send(AppEvent::PersistModelSelection { model, effort });
+        self.app_event_tx.send(AppEvent::PersistModelSelection {
+            model,
+            effort,
+            harness: self.config.harness.clone(),
+        });
     }
 
     /// Open the permissions popup (alias for /permissions).
@@ -10669,6 +10765,12 @@ impl ChatWidget {
     pub(crate) fn set_service_tier(&mut self, service_tier: Option<ServiceTier>) {
         self.config.service_tier = service_tier;
         self.effective_service_tier = service_tier;
+    }
+
+    /// Set the harness in the widget's config copy.
+    pub(crate) fn set_harness(&mut self, harness: Option<String>) {
+        self.config.harness = harness;
+        self.refresh_model_dependent_surfaces();
     }
 
     pub(crate) fn current_service_tier(&self) -> Option<ServiceTier> {

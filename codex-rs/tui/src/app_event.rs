@@ -245,12 +245,21 @@ pub(crate) enum AppEvent {
         model: ModelPreset,
     },
 
+    /// Open provider-specific tool harness selection.
+    OpenHarnessPopupForProvider {
+        provider_id: String,
+        provider_name: String,
+        model: String,
+        effort: Option<ReasoningEffort>,
+    },
+
     /// Persist provider/model/harness selection and start a fresh chat.
     PersistProviderModelSelection {
         provider_id: String,
         provider_name: String,
         model: String,
         effort: Option<ReasoningEffort>,
+        harness: Option<String>,
     },
 
     /// Start a local provider, wait for readiness, then load its models.
@@ -484,6 +493,12 @@ pub(crate) enum AppEvent {
     PersistModelSelection {
         model: String,
         effort: Option<ReasoningEffort>,
+        harness: Option<String>,
+    },
+
+    /// Persist the selected harness without changing the current model.
+    PersistHarnessSelection {
+        harness: Option<String>,
     },
 
     /// Persist the selected personality to the appropriate config.
@@ -530,6 +545,12 @@ pub(crate) enum AppEvent {
     /// Open the reasoning selection popup after picking a model.
     OpenReasoningPopup {
         model: ModelPreset,
+    },
+
+    /// Open the harness picker after selecting a model/reasoning level.
+    OpenHarnessPopup {
+        model: String,
+        effort: Option<ReasoningEffort>,
     },
 
     /// Open the Plan-mode reasoning scope prompt for the selected model/effort.

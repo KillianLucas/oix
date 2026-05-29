@@ -1,80 +1,73 @@
 ---
 title: Configuration
-description: Tune Open Interpreter from one TOML file.
+description: Configure models, providers, approvals, sandboxing, features, MCP, and profiles.
 ---
 
-Open Interpreter reads its configuration from `~/.openinterpreter/config.toml`.
-You can also drop a `.openinterpreter/config.toml` into a project to layer
-project-specific settings on top.
+Open Interpreter reads durable settings from TOML files. User-level config lives
+at:
 
-## Where settings come from
-
-Settings layer in this order, with later layers winning:
-
-<Steps>
-  <Step title="Built-in defaults">
-    Sensible values that ship with the binary.
-  </Step>
-  <Step title="System config">
-    Admin-managed values, if present.
-  </Step>
-  <Step title="User config">
-    `~/.openinterpreter/config.toml`. Your defaults.
-  </Step>
-  <Step title="Project config">
-    `.openinterpreter/config.toml` inside the project root.
-  </Step>
-  <Step title="Profile">
-    A named profile selected with `--profile`.
-  </Step>
-  <Step title="CLI flags">
-    `-c key=value` overrides for a single run.
-  </Step>
-</Steps>
-
-To see exactly where each value came from:
-
-```
-/debug-config
+```text
+~/.openinterpreter/config.toml
 ```
 
-## The settings you reach for most
+Project config can live in a trusted project under:
+
+```text
+.openinterpreter/config.toml
+```
+
+Command-line overrides use `-c key=value` and apply only to that invocation.
+
+## Precedence
+
+Higher-precedence values override lower-precedence values:
+
+1. Built-in defaults
+2. System or managed configuration
+3. User config
+4. Trusted project config
+5. Selected profile
+6. CLI overrides from `-c`, `--enable`, `--disable`, or dedicated flags
+
+Use `/debug-config` in the TUI to inspect the effective values and where they
+came from.
+
+## Common Settings
 
 ```toml
-# Default model and provider
-model = "gpt-5-codex"
+model = "gpt-5.1-codex"
+model_provider = "openai"
 
-# When to ask before running things: "untrusted" | "on-request" | "never"
-approval_policy = "on-request"
-
-# Sandbox: "read-only" | "workspace-write" | "danger-full-access"
-sandbox_mode = "workspace-write"
-
-# Reasoning effort: "low" | "medium" | "high" | "none"
+# "minimal" | "low" | "medium" | "high" | "xhigh"
 model_reasoning_effort = "medium"
 
-# Harness guidance: lets selected harnesses include Open Interpreter
-# reliability and tool-use guidance. Set false for stricter harness emulation.
-harness_guidance = true
+# "auto" | "concise" | "detailed" | "none"
+model_reasoning_summary = "auto"
 
-# Communication style
-personality = "concise"
+# "read-only" | "workspace-write" | "danger-full-access"
+sandbox_mode = "workspace-write"
 
-# Where the agent writes logs
+# "untrusted" | "on-request" | "never"
+approval_policy = "on-request"
+
+# "friendly" | "pragmatic" | "none"
+personality = "pragmatic"
+
+web_search = "cached"
 log_dir = "~/.openinterpreter/log"
 ```
 
 ## Profiles
 
-Profiles are named groups of overrides for different contexts.
+Profiles are named groups of settings:
 
 ```toml
 [profiles.fast]
-model = "gpt-5-codex-mini"
+model = "gpt-5.1-codex-mini"
 model_reasoning_effort = "low"
 
 [profiles.review]
-model = "gpt-5-codex"
+model = "gpt-5.1-codex"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 ```
@@ -85,136 +78,141 @@ Use one with:
 interpreter --profile review
 ```
 
-## Override values from the CLI
+## CLI Overrides
 
-`-c` takes a TOML expression and applies it to the active config:
-
-```bash
-interpreter -c model='"gpt-5-codex-mini"' -c approval_policy='"never"'
-```
-
-Useful for one-off runs and scripts.
-
-## Harness guidance
-
-When `harness_guidance` is enabled, a selected harness can add a small
-Open Interpreter guidance block to the model instructions. This is intended
-to make tool use more reliable while preserving the selected harness behavior.
-
-It defaults to `true`. Disable it when you want stricter emulation:
-
-```toml
-harness_guidance = false
-```
-
-For a single run:
+`-c` accepts TOML-like values. Quote strings so your shell does not strip them:
 
 ```bash
-interpreter -c harness_guidance=false "fix the failing tests"
+interpreter -c model='"gpt-5.1-codex-mini"' -c approval_policy='"never"'
 ```
 
-## MCP servers
+Feature flags also have short forms:
 
-Open Interpreter can connect to [Model Context Protocol](https://modelcontextprotocol.io)
-servers. Define them under `[mcp_servers]`:
-
-```toml
-[mcp_servers.docs]
-command = "docs-server"
+```bash
+interpreter --enable hooks --disable memories
 ```
 
-By default, MCP tools run one at a time. To allow parallel calls for a
-server whose tools are safe to run together:
+## Feature Flags
 
-```toml
-[mcp_servers.docs]
-command = "docs-server"
-supports_parallel_tool_calls = true
-```
-
-<Warning>
-Only enable parallel calls for tools that do not share state. Two tools
-that write to the same file or row at the same time will race.
-</Warning>
-
-### MCP tool approvals
-
-Set a default approval mode for every tool exposed by a server, and
-override individual tools:
-
-```toml
-[mcp_servers.docs]
-command = "docs-server"
-default_tools_approval_mode = "approve"
-
-[mcp_servers.docs.tools.search]
-approval_mode = "prompt"
-```
-
-See the [MCP servers guide](/docs/mcp) for the full picture.
-
-## Feature flags
-
-Optional behavior lives behind `[features]`.
+Optional behavior lives under `[features]`.
 
 ```toml
 [features]
-apps = true            # ChatGPT connector surface ($ mentions, /apps)
-plugins = true         # Plugin bundles for skills, MCP, connectors
-child_agents_md = true # Hierarchical AGENTS.md guidance
+hooks = true
+multi_agent = true
+shell_tool = true
+shell_snapshot = true
+unified_exec = true
+memories = false
+apps = false
+plugins = false
+undo = false
 ```
 
-Apps and plugins stay off by default so the base config stays
-provider-neutral.
+Use `/experimental` in the TUI for interactive toggles when available.
 
-## Notify hook
+## Model Providers
 
-Open Interpreter can run a shell hook each time a turn finishes. Wire it
-up under `[notify]`. The notification payload includes a `client` field
-identifying the surface that started the turn (the TUI reports
-`interpreter-tui`).
+Built-in providers are selected by `model_provider`. Custom OpenAI-compatible
+providers can be added under `[model_providers.<id>]`:
 
-## Custom CA certificates
+```toml
+model_provider = "acme"
+model = "acme-coder-large"
 
-Behind a corporate proxy that intercepts TLS? Point Open Interpreter at
-your bundle:
-
-```bash
-export CODEX_CA_CERTIFICATE=/etc/ssl/corp-bundle.pem
+[model_providers.acme]
+name = "Acme"
+base_url = "https://api.acme.example/v1"
+env_key = "ACME_API_KEY"
+wire_api = "responses"
 ```
 
-If `CODEX_CA_CERTIFICATE` is not set, Open Interpreter falls back to
-`SSL_CERT_FILE`. If neither is set, it uses your system root certificates.
+Provider credentials should usually come from environment variables or the
+credential store rather than inline tokens.
 
-The PEM file may contain multiple certificates. OpenSSL `TRUSTED CERTIFICATE`
-labels are tolerated, and well-formed `X509 CRL` sections are ignored.
+## Harness
 
-## SQLite state
+Open Interpreter adds a `harness` setting for compatibility modes that shape
+the agent surface like another coding harness while still running through the
+native Open Interpreter runtime.
 
-Sessions and memory are stored in SQLite under `sqlite_home`. Override it
-with the config key or `CODEX_SQLITE_HOME`. By default,
-`workspace-write` sessions store under a temp dir, while other sandboxes
-use `~/.openinterpreter`.
+```toml
+harness = "kimi-cli"
+harness_guidance = true
+```
 
-## Plan mode defaults
+Supported values are implementation-dependent, but the current codebase
+includes native, Claude Code, DeepSeek TUI, Kimi CLI, Qwen Code, SWE-agent, and
+minimal harness modes. Use this when you intentionally need a harness-shaped
+prompt/tool surface. Leave it unset for normal Open Interpreter behavior.
 
-`plan_mode_reasoning_effort` lets you override reasoning effort while in
-Plan mode. Set it to `"none"` to explicitly disable reasoning when planning.
-Leave it unset to inherit the Plan preset default (`medium`).
+`harness_guidance` lets Open Interpreter include a small reliability guidance
+block where that harness mode allows it. Set it to `false` if you need stricter
+harness behavior.
 
-## Notices
+## MCP Servers
 
-The `[notice]` table stores "do not show again" flags for some UI prompts.
-Delete entries here if you want a notice to appear again.
+MCP servers are configured under `[mcp_servers]`:
 
-## JSON Schema
+```toml
+[mcp_servers.docs]
+command = "npx"
+args = ["-y", "@acme/docs-mcp"]
+env = { ACME_TOKEN = "env:ACME_TOKEN" }
+default_tools_approval_mode = "prompt"
+```
 
-A generated JSON Schema for `config.toml` lives at
-`codex-rs/core/config.schema.json` in the source tree. Useful for editor
-autocomplete or validation in CI.
+Streamable HTTP servers use `url`:
 
-## Quitting hint
+```toml
+[mcp_servers.search]
+url = "https://mcp.example.com"
+bearer_token_env_var = "MCP_TOKEN"
+```
 
-Pressing `Ctrl+C` once shows a one-second hint (`ctrl + c again to quit`).
-The second press exits. This catches accidental quits without making
-intentional exits slow.
+See [MCP](/docs/mcp) for transport, OAuth, and per-tool approval details.
+
+## Shell Environment
+
+Use `shell_environment_policy` to control what environment variables are passed
+to spawned commands:
+
+```toml
+[shell_environment_policy]
+inherit = "all"
+ignore_default_excludes = false
+exclude = ["AWS_SECRET_ACCESS_KEY", "DATABASE_URL"]
+set = { CI = "1" }
+```
+
+## History and Memory
+
+Session history is stored locally. You can disable transcript persistence:
+
+```toml
+[history]
+persistence = "none"
+```
+
+Memories are a separate experimental feature:
+
+```toml
+[features]
+memories = true
+
+[memories]
+use_memories = true
+generate_memories = true
+```
+
+See [Memories](/docs/memories).
+
+## Config Schema
+
+The source tree includes a generated JSON Schema at:
+
+```text
+codex-rs/core/config.schema.json
+```
+
+Use it for editor completion or CI validation when maintaining shared config.

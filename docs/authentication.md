@@ -1,91 +1,85 @@
 ---
 title: Authentication
-description: Sign in with a provider, use an API key, or point at a local model.
+description: Sign in with ChatGPT, use API keys, or connect local and compatible providers.
 ---
 
-Open Interpreter is provider agnostic. The first time you run it, the
-onboarding flow asks you to pick how you want to authenticate. You can
-change this any time from a session with `/model`.
+Open Interpreter is provider-agnostic. The first run asks how you want to
+authenticate, and `/model` lets you change that later.
 
-## Sign in with ChatGPT
+## ChatGPT Login
 
-If you have a paid ChatGPT plan, this is the simplest path. Open Interpreter
-opens a browser window, you sign in, and tokens refresh automatically while
-you use the CLI.
+Start the TUI and choose ChatGPT sign-in:
 
 ```bash
 interpreter
-# choose "Sign in with ChatGPT" in the picker
 ```
 
-Use this when you want billing tied to your ChatGPT plan and the smoothest
-setup.
+This opens a browser-based login flow and stores refreshable credentials in the
+configured credential store.
 
-## Use an API key
+## API Keys
 
-API keys are the right default for automation, CI, and headless setups.
-
-<Tabs>
-  <Tab title="OpenAI">
-    ```bash
-    export OPENAI_API_KEY=sk-...
-    interpreter
-    ```
-  </Tab>
-  <Tab title="Anthropic">
-    ```bash
-    export ANTHROPIC_API_KEY=sk-ant-...
-    interpreter
-    ```
-  </Tab>
-  <Tab title="Other providers">
-    Pick "Add a custom provider" in the onboarding picker, paste the base
-    URL and an API key, and Open Interpreter writes a provider entry into
-    `~/.openinterpreter/config.toml`.
-  </Tab>
-</Tabs>
-
-You can also paste a key directly into the provider picker. Open
-Interpreter stores it in the system credential store when one is available
-and falls back to a file under `~/.openinterpreter/`.
-
-## Connect a local model
-
-Open Interpreter ships with first-class support for local model runners.
-Both keep everything on your machine, useful for sensitive work and for
-running offline.
-
-- **Ollama.** Pick "Ollama" in the picker. Open Interpreter discovers
-  your installed models automatically.
-- **LM Studio.** Pick "LM Studio". Make sure the local server is
-  running on its default port.
-
-## Where credentials live
-
-| Item                    | Location                                    |
-| ----------------------- | ------------------------------------------- |
-| Cached login tokens     | `~/.openinterpreter/auth.json` or keyring   |
-| Configured providers    | `~/.openinterpreter/config.toml`            |
-| API keys (per provider) | Environment variables or `config.toml`      |
-
-Treat the auth file like a password. Anyone with read access to it can use
-your account.
-
-To switch storage between a file and the system keyring, set
-`cli_auth_credentials_store` in `config.toml`:
-
-```toml
-cli_auth_credentials_store = "keyring"   # or "file" or "auto"
-```
-
-## Sign out
+API keys are the best fit for CI, headless machines, and explicit provider
+billing.
 
 ```bash
+export OPENAI_API_KEY=sk-...
+interpreter
+```
+
+Other providers use their own environment variables, such as
+`ANTHROPIC_API_KEY`, or the variable configured by their provider entry.
+
+## Local Providers
+
+Use local runners when you want model traffic to stay on your machine:
+
+| Provider | Notes |
+| -------- | ----- |
+| Ollama | Start Ollama and choose it from `/model`, or use `--oss`. |
+| LM Studio | Start the local server and choose LM Studio from `/model`. |
+
+```bash
+interpreter --oss "summarize this repo with my local model"
+```
+
+## Compatible Providers
+
+Add an OpenAI-compatible provider in config:
+
+```toml
+model_provider = "acme"
+model = "acme-coder"
+
+[model_providers.acme]
+name = "Acme"
+base_url = "https://api.acme.example/v1"
+env_key = "ACME_API_KEY"
+wire_api = "responses"
+```
+
+Then:
+
+```bash
+export ACME_API_KEY=...
+interpreter
+```
+
+## Credential Storage
+
+```toml
+cli_auth_credentials_store = "auto" # "auto" | "keyring" | "file"
+```
+
+Open Interpreter stores user state under `~/.openinterpreter/`. Treat
+`auth.json` like a password if file storage is used.
+
+## Sign Out
+
+Inside the TUI:
+
+```text
 /logout
 ```
 
-Or remove the auth file directly:
-
-```bash
-rm ~/.openinterpreter/auth.json
-```
+Or from a compatible login surface, use the logout command when available.

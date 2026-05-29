@@ -6,6 +6,7 @@ use crate::onboarding::model_selection::LoadingProviderModelsState;
 use crate::onboarding::model_selection::LocalProviderUnavailableState;
 use crate::onboarding::model_selection::ProviderModelLoadResolution;
 use crate::onboarding::model_selection::ProviderModelSelectionState;
+use crate::onboarding::model_selection::harness_choices_for_provider_model;
 use crate::onboarding::provider_setup::provider_preset_by_id;
 use crate::provider_model_flow::ProviderChoiceAction;
 use crate::provider_model_flow::model_picker_provider_choices;
@@ -349,7 +350,7 @@ impl ChatWidget {
                 if model.is_empty() {
                     return;
                 }
-                tx.send(AppEvent::PersistModelSelection {
+                tx.send(AppEvent::OpenHarnessPopup {
                     model,
                     effort: None,
                 });
@@ -397,7 +398,7 @@ impl ChatWidget {
                 if model.is_empty() {
                     return;
                 }
-                tx.send(AppEvent::PersistProviderModelSelection {
+                tx.send(AppEvent::OpenHarnessPopupForProvider {
                     provider_id: provider_id.clone(),
                     provider_name: provider_name.clone(),
                     model,
@@ -479,7 +480,7 @@ impl ChatWidget {
                 let single_supported_effort = Self::single_supported_reasoning_effort(&preset);
                 let actions: Vec<SelectionAction> = if let Some(effort) = single_supported_effort {
                     vec![Box::new(move |tx| {
-                        tx.send(AppEvent::PersistProviderModelSelection {
+                        tx.send(AppEvent::OpenHarnessPopupForProvider {
                             provider_id: provider_id_for_action.clone(),
                             provider_name: provider_name_for_action.clone(),
                             model: preset_for_action.model.clone(),
@@ -615,7 +616,7 @@ impl ChatWidget {
         if supported.is_empty() {
             if !preset.supports_thinking_toggle {
                 self.app_event_tx
-                    .send(AppEvent::PersistProviderModelSelection {
+                    .send(AppEvent::OpenHarnessPopupForProvider {
                         provider_id,
                         provider_name,
                         model: preset.model,
@@ -630,7 +631,7 @@ impl ChatWidget {
                 let provider_name = provider_name.clone();
                 let model = model.clone();
                 move |tx| {
-                    tx.send(AppEvent::PersistProviderModelSelection {
+                    tx.send(AppEvent::OpenHarnessPopupForProvider {
                         provider_id: provider_id.clone(),
                         provider_name: provider_name.clone(),
                         model: model.clone(),
@@ -639,12 +640,14 @@ impl ChatWidget {
                 }
             })];
             let off_actions: Vec<SelectionAction> = vec![Box::new({
+                let provider_id_for_action = provider_id;
                 let provider_name = provider_name.clone();
+                let model_for_action = model;
                 move |tx| {
-                    tx.send(AppEvent::PersistProviderModelSelection {
-                        provider_id: provider_id.clone(),
+                    tx.send(AppEvent::OpenHarnessPopupForProvider {
+                        provider_id: provider_id_for_action.clone(),
                         provider_name: provider_name.clone(),
-                        model: model.clone(),
+                        model: model_for_action.clone(),
                         effort: Some(ReasoningEffortConfig::None),
                     });
                 }
@@ -710,7 +713,7 @@ impl ChatWidget {
         if choices.len() == 1 {
             let selected_effort = choices.first().and_then(|choice| choice.stored);
             self.app_event_tx
-                .send(AppEvent::PersistProviderModelSelection {
+                .send(AppEvent::OpenHarnessPopupForProvider {
                     provider_id,
                     provider_name,
                     model: preset.model,
@@ -751,7 +754,7 @@ impl ChatWidget {
             let provider_id_for_action = provider_id.clone();
             let provider_name_for_action = provider_name.clone();
             let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
-                tx.send(AppEvent::PersistProviderModelSelection {
+                tx.send(AppEvent::OpenHarnessPopupForProvider {
                     provider_id: provider_id_for_action.clone(),
                     provider_name: provider_name_for_action.clone(),
                     model: model.clone(),
@@ -780,6 +783,58 @@ impl ChatWidget {
             footer_hint: Some(standard_popup_hint_line()),
             items,
             initial_selected_idx,
+            ..Default::default()
+        });
+    }
+
+    pub(crate) fn open_harness_popup_for_provider(
+        &mut self,
+        provider_id: String,
+        provider_name: String,
+        model: String,
+        effort: Option<ReasoningEffortConfig>,
+    ) {
+        let provider = self.config.model_providers.get(provider_id.as_str());
+        let choices = harness_choices_for_provider_model(
+            provider_id.as_str(),
+            Some(provider_name.as_str()),
+            provider.and_then(|provider| provider.base_url.as_deref()),
+            provider.map(|provider| provider.wire_api),
+            Some(model.as_str()),
+        );
+        let items: Vec<SelectionItem> = choices
+            .into_iter()
+            .map(|choice| {
+                let provider_id = provider_id.clone();
+                let provider_name = provider_name.clone();
+                let model = model.clone();
+                let harness = choice.stored.clone();
+                SelectionItem {
+                    name: choice.label,
+                    description: Some(choice.description),
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::PersistProviderModelSelection {
+                            provider_id: provider_id.clone(),
+                            provider_name: provider_name.clone(),
+                            model: model.clone(),
+                            effort,
+                            harness: harness.clone(),
+                        });
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        let header = self.model_menu_header(
+            "Select Tool Harness",
+            &format!("{provider_name} / {model} will start a new chat."),
+        );
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            header,
             ..Default::default()
         });
     }

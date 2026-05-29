@@ -27,45 +27,108 @@
   "navigation": {
     "groups": [
       {
-        "group": "Get started",
+        "group": "Get Started",
         "pages": [
           "docs/getting-started",
-          "docs/install",
           "docs/quickstart",
-          "docs/authentication"
+          "docs/use-cases",
+          "docs/migrate",
+          {
+            "group": "Concepts",
+            "pages": [
+              "docs/prompting",
+              "docs/workflows",
+              "docs/models",
+              "docs/harness",
+              "docs/subagents"
+            ]
+          }
         ]
       },
       {
-        "group": "Using Open Interpreter",
+        "group": "CLI",
         "pages": [
           "docs/interactive",
-          "docs/exec",
+          "docs/cli-reference",
           "docs/sessions",
-          "docs/slash_commands"
+          "docs/slash_commands",
+          "docs/web-search",
+          "docs/auto-review"
         ]
       },
       {
-        "group": "Customize",
+        "group": "Configuration",
         "pages": [
           "docs/config",
+          "docs/config-reference",
           "docs/providers",
-          "docs/agents_md",
-          "docs/skills",
-          "docs/mcp"
+          "docs/authentication",
+          {
+            "group": "Project context",
+            "pages": [
+              "docs/agents_md",
+              "docs/customization",
+              "docs/skills",
+              "docs/rules",
+              "docs/memories"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "docs/mcp",
+              "docs/plugins",
+              "docs/hooks"
+            ]
+          },
+          {
+            "group": "Performance",
+            "pages": [
+              "docs/speed"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "Automation",
+        "pages": [
+          "docs/exec",
+          "docs/sdk",
+          "docs/app-server",
+          "docs/acp",
+          "docs/mcp-server",
+          "docs/github-action",
+          {
+            "group": "Server deployments",
+            "pages": [
+              "docs/remote"
+            ]
+          }
         ]
       },
       {
         "group": "Security",
         "pages": [
           "docs/sandbox",
-          "docs/execpolicy"
+          "docs/permissions",
+          "docs/execpolicy",
+          "docs/cyber-safety"
+        ]
+      },
+      {
+        "group": "Project",
+        "pages": [
+          "docs/contributing",
+          "docs/project-license",
+          "docs/license"
         ]
       },
       {
         "group": "Reference",
         "pages": [
-          "docs/example-config",
-          "docs/project-license"
+          "docs/install",
+          "docs/windows",
+          "docs/example-config"
         ]
       }
     ]

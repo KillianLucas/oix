@@ -16,7 +16,13 @@ pub(super) fn image_generation_tool_auth_allowed(auth_manager: Option<&AuthManag
 }
 
 fn effective_truncation_policy(model_info: &ModelInfo, harness: &Harness) -> TruncationPolicy {
-    if (harness.is_claude_code() || harness.is_kimi_cli() || harness.is_swe_agent())
+    if (harness.is_claude_code()
+        || harness.is_kimi_code()
+        || harness.is_kimi_cli()
+        || harness.is_little_coder()
+        || harness.is_opencode()
+        || harness.is_pi()
+        || harness.is_swe_agent())
         && let Some(effective_context_window) =
             model_info
                 .resolved_context_window()

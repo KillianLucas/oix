@@ -1,56 +1,74 @@
 ---
-title: Example config
+title: Example Config
 description: A starting point for ~/.openinterpreter/config.toml.
 ---
 
-Drop this into `~/.openinterpreter/config.toml` and edit to taste. Every
-key here is optional. Open Interpreter has working defaults for all of
-them.
+Drop this into `~/.openinterpreter/config.toml` and edit it to match your
+workflow. Every key here is optional.
 
 ```toml
 # ---------------------------------------------------------------
-# Model
+# Model and provider
 # ---------------------------------------------------------------
 
-model = "gpt-5-codex"
+model_provider = "openai"
+model = "gpt-5.1-codex"
 model_reasoning_effort = "medium"
-personality = "concise"
+model_reasoning_summary = "auto"
+personality = "pragmatic"
+web_search = "cached"
 
-# Harness behavior, when using harness emulation such as "kimi-cli"
+# ---------------------------------------------------------------
+# Harness compatibility
+# ---------------------------------------------------------------
+
+# Leave unset for normal Open Interpreter behavior.
+# harness = "kimi-cli"
 harness_guidance = true
 
 # ---------------------------------------------------------------
-# Permissions
+# Sandbox and approvals
 # ---------------------------------------------------------------
 
-# Sandbox: "read-only" | "workspace-write" | "danger-full-access"
 sandbox_mode = "workspace-write"
-
-# Approvals: "untrusted" | "on-request" | "never"
 approval_policy = "on-request"
 
-# Extra paths the workspace sandbox can read
-[sandbox]
-extra_read_dirs = ["/Users/me/notes"]
+[sandbox_workspace_write]
+network_access = false
+writable_roots = []
 
 # ---------------------------------------------------------------
-# Logging
+# Logging and history
 # ---------------------------------------------------------------
 
 log_dir = "~/.openinterpreter/log"
+
+[history]
+persistence = "save-all"
+max_bytes = 104857600
 
 # ---------------------------------------------------------------
 # Profiles
 # ---------------------------------------------------------------
 
 [profiles.fast]
-model = "gpt-5-codex-mini"
+model = "gpt-5.1-codex-mini"
 model_reasoning_effort = "low"
 
 [profiles.review]
-model = "gpt-5-codex"
+model = "gpt-5.1-codex"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
+
+# ---------------------------------------------------------------
+# Custom provider
+# ---------------------------------------------------------------
+
+[model_providers.example]
+name = "Example"
+base_url = "https://api.example.com/v1"
+env_key = "EXAMPLE_API_KEY"
+wire_api = "responses"
 
 # ---------------------------------------------------------------
 # MCP servers
@@ -58,26 +76,25 @@ sandbox_mode = "read-only"
 
 [mcp_servers.docs]
 command = "docs-server"
-default_tools_approval_mode = "approve"
+default_tools_approval_mode = "prompt"
 
 [mcp_servers.docs.tools.search]
-approval_mode = "prompt"
+approval_mode = "approve"
 
 # ---------------------------------------------------------------
 # Features
 # ---------------------------------------------------------------
 
 [features]
+hooks = true
+multi_agent = true
+shell_tool = true
+shell_snapshot = true
+unified_exec = true
+memories = false
 apps = false
 plugins = false
-child_agents_md = true
-
-# ---------------------------------------------------------------
-# Notify hook
-# ---------------------------------------------------------------
-
-[notify]
-command = ["osascript", "-e", "display notification \"turn finished\" with title \"Open Interpreter\""]
+undo = false
 ```
 
 Run with a profile:
@@ -92,4 +109,4 @@ Override one value for a single run:
 interpreter -c approval_policy='"never"' "fix the failing tests"
 ```
 
-See the [Configuration](/docs/config) guide for what each section does.
+See [Configuration](/docs/config) and [Config reference](/docs/config-reference).

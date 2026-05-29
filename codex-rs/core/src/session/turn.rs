@@ -23,6 +23,7 @@ use crate::compact_remote::run_inline_remote_auto_compact_task;
 use crate::connectors;
 use crate::context::ContextualUserFragment;
 use crate::feedback_tags;
+use crate::harness::mini_swe_agent::is_terminal_submit_call as is_mini_swe_agent_terminal_submit_call;
 use crate::hook_runtime::PendingInputHookDisposition;
 use crate::hook_runtime::emit_hook_completed_events;
 use crate::hook_runtime::inspect_pending_input;
@@ -1979,6 +1980,7 @@ async fn try_run_sampling_request(
     let mut in_flight: Vec<BoxFuture<'static, CodexResult<ResponseInputItem>>> = Vec::new();
     let mut needs_follow_up = false;
     let mut tool_call_seen_in_response = false;
+    let mut terminal_submit_call_seen_in_response = false;
     let mut last_agent_message: Option<String> = None;
     let mut active_item: Option<TurnItem> = None;
     let mut active_tool_argument_diff_consumer: Option<(
@@ -2067,6 +2069,11 @@ async fn try_run_sampling_request(
                     tool_runtime: tool_runtime.clone(),
                     cancellation_token: cancellation_token.child_token(),
                 };
+                if turn_context.tools_config.harness.is_mini_swe_agent()
+                    && is_mini_swe_agent_terminal_submit_call(&item)
+                {
+                    terminal_submit_call_seen_in_response = true;
+                }
 
                 let preempt_for_mailbox_mail = match &item {
                     ResponseItem::Message { role, phase, .. } => {
@@ -2349,6 +2356,11 @@ async fn try_run_sampling_request(
     .await;
 
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+
+    let mut outcome = outcome;
+    if terminal_submit_call_seen_in_response && let Ok(result) = &mut outcome {
+        result.needs_follow_up = false;
+    }
 
     if cancellation_token.is_cancelled() {
         return Err(CodexErr::TurnAborted);

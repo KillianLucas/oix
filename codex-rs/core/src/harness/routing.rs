@@ -10,10 +10,16 @@ pub(crate) enum MessagesHarnessRoute {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum ChatHarnessRoute {
     DeepSeekTui,
+    KimiCode,
     KimiCli,
+    LittleCoder,
+    MiniSweAgent,
     Minimal,
+    OpenCode,
+    Pi,
     QwenCode,
     SweAgent,
+    Terminus2,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -47,6 +53,19 @@ pub(crate) fn resolve_stream_transport_route(
         (WireApi::Chat, Harness::KimiCli) => {
             Ok(StreamTransportRoute::ChatHarness(ChatHarnessRoute::KimiCli))
         }
+        (WireApi::Chat, Harness::KimiCode) => {
+            Ok(StreamTransportRoute::ChatHarness(ChatHarnessRoute::KimiCode))
+        }
+        (WireApi::Chat, Harness::LittleCoder) => Ok(StreamTransportRoute::ChatHarness(
+            ChatHarnessRoute::LittleCoder,
+        )),
+        (WireApi::Chat, Harness::MiniSweAgent) => Ok(StreamTransportRoute::ChatHarness(
+            ChatHarnessRoute::MiniSweAgent,
+        )),
+        (WireApi::Chat, Harness::OpenCode) => Ok(StreamTransportRoute::ChatHarness(
+            ChatHarnessRoute::OpenCode,
+        )),
+        (WireApi::Chat, Harness::Pi) => Ok(StreamTransportRoute::ChatHarness(ChatHarnessRoute::Pi)),
         (WireApi::Chat, Harness::DeepSeekTui) => Ok(StreamTransportRoute::ChatHarness(
             ChatHarnessRoute::DeepSeekTui,
         )),
@@ -59,6 +78,9 @@ pub(crate) fn resolve_stream_transport_route(
         (WireApi::Chat, Harness::SweAgent) => Ok(StreamTransportRoute::ChatHarness(
             ChatHarnessRoute::SweAgent,
         )),
+        (WireApi::Chat, Harness::Terminus2) => Ok(StreamTransportRoute::ChatHarness(
+            ChatHarnessRoute::Terminus2,
+        )),
         (WireApi::Chat, _) => Ok(StreamTransportRoute::ChatCompletionsCompat),
         (WireApi::Messages, Harness::ClaudeCode | Harness::ClaudeCodeBare) => {
             Ok(StreamTransportRoute::MessagesHarness(
@@ -67,6 +89,22 @@ pub(crate) fn resolve_stream_transport_route(
         }
         (WireApi::Messages, Harness::KimiCli) => Err(CodexErr::InvalidRequest(
             "wire_api = \"messages\" is not supported by harness = \"kimi-cli\"".to_string(),
+        )),
+        (WireApi::Messages, Harness::KimiCode) => Err(CodexErr::InvalidRequest(
+            "wire_api = \"messages\" is not supported by harness = \"kimi-code\"".to_string(),
+        )),
+        (WireApi::Messages, Harness::LittleCoder) => Err(CodexErr::InvalidRequest(
+            "wire_api = \"messages\" is not supported by harness = \"little-coder\"".to_string(),
+        )),
+        (WireApi::Messages, Harness::MiniSweAgent) => Err(CodexErr::InvalidRequest(
+            "wire_api = \"messages\" is not supported by harness = \"mini-swe-agent\""
+                .to_string(),
+        )),
+        (WireApi::Messages, Harness::OpenCode) => Err(CodexErr::InvalidRequest(
+            "wire_api = \"messages\" is not supported by harness = \"opencode\"".to_string(),
+        )),
+        (WireApi::Messages, Harness::Pi) => Err(CodexErr::InvalidRequest(
+            "wire_api = \"messages\" is not supported by harness = \"pi\"".to_string(),
         )),
         (WireApi::Messages, Harness::DeepSeekTui) => Err(CodexErr::InvalidRequest(
             "wire_api = \"messages\" is not supported by harness = \"deepseek-tui\"".to_string(),
@@ -79,6 +117,9 @@ pub(crate) fn resolve_stream_transport_route(
         )),
         (WireApi::Messages, Harness::SweAgent) => Err(CodexErr::InvalidRequest(
             "wire_api = \"messages\" is not supported by harness = \"swe-agent\"".to_string(),
+        )),
+        (WireApi::Messages, Harness::Terminus2) => Err(CodexErr::InvalidRequest(
+            "wire_api = \"messages\" is not supported by harness = \"terminus-2\"".to_string(),
         )),
         (WireApi::Messages, Harness::Native) => Err(CodexErr::InvalidRequest(
             "wire_api = \"messages\" requires a harness-native transport; configure harness = \"claude-code\" or \"claude-code-bare\" for Anthropic-style sessions"
@@ -98,10 +139,16 @@ fn harness_config_name(harness: &Harness) -> &str {
         Harness::ClaudeCodeBare => "claude-code-bare",
         Harness::Native => "",
         Harness::DeepSeekTui => "deepseek-tui",
+        Harness::KimiCode => "kimi-code",
         Harness::KimiCli => "kimi-cli",
+        Harness::LittleCoder => "little-coder",
+        Harness::MiniSweAgent => "mini-swe-agent",
+        Harness::OpenCode => "opencode",
+        Harness::Pi => "pi",
         Harness::Minimal => "minimal",
         Harness::QwenCode => "qwen-code",
         Harness::SweAgent => "swe-agent",
+        Harness::Terminus2 => "terminus-2",
         Harness::Other(name) => name.as_str(),
     }
 }
@@ -159,6 +206,15 @@ mod tests {
     }
 
     #[test]
+    fn little_coder_chat_wire_uses_harness_native_chat_route() {
+        assert_eq!(
+            resolve_stream_transport_route(WireApi::Chat, &Harness::LittleCoder)
+                .expect("little-coder route"),
+            StreamTransportRoute::ChatHarness(ChatHarnessRoute::LittleCoder)
+        );
+    }
+
+    #[test]
     fn messages_wire_requires_claude_code_harness() {
         let err = resolve_stream_transport_route(WireApi::Messages, &Harness::Native)
             .expect_err("messages without harness should fail");
@@ -192,6 +248,24 @@ mod tests {
     }
 
     #[test]
+    fn mini_swe_agent_chat_wire_uses_harness_native_chat_route() {
+        assert_eq!(
+            resolve_stream_transport_route(WireApi::Chat, &Harness::MiniSweAgent)
+                .expect("mini-swe-agent route"),
+            StreamTransportRoute::ChatHarness(ChatHarnessRoute::MiniSweAgent)
+        );
+    }
+
+    #[test]
+    fn opencode_chat_wire_uses_harness_native_chat_route() {
+        assert_eq!(
+            resolve_stream_transport_route(WireApi::Chat, &Harness::OpenCode)
+                .expect("opencode route"),
+            StreamTransportRoute::ChatHarness(ChatHarnessRoute::OpenCode)
+        );
+    }
+
+    #[test]
     fn minimal_chat_wire_uses_harness_native_chat_route() {
         assert_eq!(
             resolve_stream_transport_route(WireApi::Chat, &Harness::Minimal)
@@ -213,6 +287,14 @@ mod tests {
         assert_eq!(
             resolve_stream_transport_route(WireApi::Chat, &Harness::SweAgent).expect("swe route"),
             StreamTransportRoute::ChatHarness(ChatHarnessRoute::SweAgent)
+        );
+    }
+
+    #[test]
+    fn terminus_2_chat_wire_uses_harness_native_chat_route() {
+        assert_eq!(
+            resolve_stream_transport_route(WireApi::Chat, &Harness::Terminus2).expect("route"),
+            StreamTransportRoute::ChatHarness(ChatHarnessRoute::Terminus2)
         );
     }
 }

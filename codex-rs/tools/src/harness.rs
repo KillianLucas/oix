@@ -5,9 +5,15 @@ pub enum Harness {
     ClaudeCode,
     ClaudeCodeBare,
     DeepSeekTui,
+    KimiCode,
     KimiCli,
+    LittleCoder,
+    MiniSweAgent,
+    OpenCode,
+    Pi,
     QwenCode,
     SweAgent,
+    Terminus2,
     Minimal,
     Other(String),
 }
@@ -19,9 +25,15 @@ impl Harness {
             Some("claude-code") => Self::ClaudeCode,
             Some("claude-code-bare") => Self::ClaudeCodeBare,
             Some("deepseek-tui") => Self::DeepSeekTui,
+            Some("kimi-code") => Self::KimiCode,
             Some("kimi-cli") => Self::KimiCli,
+            Some("little-coder") => Self::LittleCoder,
+            Some("mini-swe-agent") => Self::MiniSweAgent,
+            Some("opencode") => Self::OpenCode,
+            Some("pi") => Self::Pi,
             Some("qwen-code") => Self::QwenCode,
             Some("swe-agent") => Self::SweAgent,
+            Some("terminus-2") => Self::Terminus2,
             Some("minimal") => Self::Minimal,
             Some(other) => Self::Other(other.to_string()),
         }
@@ -39,6 +51,26 @@ impl Harness {
         matches!(self, Self::KimiCli)
     }
 
+    pub fn is_kimi_code(&self) -> bool {
+        matches!(self, Self::KimiCode)
+    }
+
+    pub fn is_little_coder(&self) -> bool {
+        matches!(self, Self::LittleCoder)
+    }
+
+    pub fn is_opencode(&self) -> bool {
+        matches!(self, Self::OpenCode)
+    }
+
+    pub fn is_pi(&self) -> bool {
+        matches!(self, Self::Pi)
+    }
+
+    pub fn is_mini_swe_agent(&self) -> bool {
+        matches!(self, Self::MiniSweAgent)
+    }
+
     pub fn is_deepseek_tui(&self) -> bool {
         matches!(self, Self::DeepSeekTui)
     }
@@ -49,6 +81,10 @@ impl Harness {
 
     pub fn is_swe_agent(&self) -> bool {
         matches!(self, Self::SweAgent)
+    }
+
+    pub fn is_terminus_2(&self) -> bool {
+        matches!(self, Self::Terminus2)
     }
 
     pub fn is_minimal(&self) -> bool {
@@ -81,12 +117,33 @@ mod tests {
             Harness::KimiCli
         );
         assert_eq!(
+            Harness::from_config_name(Some("kimi-code")),
+            Harness::KimiCode
+        );
+        assert_eq!(
+            Harness::from_config_name(Some("little-coder")),
+            Harness::LittleCoder
+        );
+        assert_eq!(
+            Harness::from_config_name(Some("mini-swe-agent")),
+            Harness::MiniSweAgent
+        );
+        assert_eq!(
+            Harness::from_config_name(Some("opencode")),
+            Harness::OpenCode
+        );
+        assert_eq!(Harness::from_config_name(Some("pi")), Harness::Pi);
+        assert_eq!(
             Harness::from_config_name(Some("qwen-code")),
             Harness::QwenCode
         );
         assert_eq!(
             Harness::from_config_name(Some("swe-agent")),
             Harness::SweAgent
+        );
+        assert_eq!(
+            Harness::from_config_name(Some("terminus-2")),
+            Harness::Terminus2
         );
         assert_eq!(Harness::from_config_name(Some("minimal")), Harness::Minimal);
     }

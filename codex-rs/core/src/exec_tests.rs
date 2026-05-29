@@ -247,6 +247,15 @@ fn full_buffer_capture_policy_disables_caps_and_exec_expiration() {
     assert!(!ExecCapturePolicy::FullBuffer.uses_expiration());
 }
 
+#[test]
+fn shell_full_output_capture_policy_disables_caps_but_keeps_exec_expiration() {
+    assert_eq!(
+        ExecCapturePolicy::ShellToolFullOutput.retained_bytes_cap(),
+        None
+    );
+    assert!(ExecCapturePolicy::ShellToolFullOutput.uses_expiration());
+}
+
 #[tokio::test]
 async fn exec_full_buffer_capture_ignores_expiration() -> Result<()> {
     #[cfg(windows)]

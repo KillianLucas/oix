@@ -5,8 +5,6 @@ use codex_arg0::arg0_dispatch_or_else_current_thread;
 use codex_tui::AppExitInfo;
 use codex_tui::ExitReason;
 use codex_utils_cli::CliConfigOverrides;
-use std::io::IsTerminal;
-use std::io::Write;
 
 #[path = "../../server-cli/src/cli_common.rs"]
 mod cli_common;
@@ -18,6 +16,8 @@ mod startup_preview;
 mod startup_trace;
 #[path = "../../server-cli/src/system_import.rs"]
 mod system_import;
+
+mod startup_status;
 
 use cli_common::AltScreenCli;
 use cli_common::FeatureToggles;
@@ -110,7 +110,6 @@ async fn run_root_tui(
             anyhow::bail!("`--remote-auth-token-env` requires `--remote`.");
         }
         let daemon_cli_overrides = daemon_startup_overrides(&interactive.config_overrides);
-        print_root_tui_startup_message().await;
         record_startup_trace_event("interpreter.tui.delegate.enter");
         codex_tui::run_main_with_deferred_remote(
             interactive,
@@ -122,39 +121,36 @@ async fn run_root_tui(
                 let daemon_cli_overrides = daemon_cli_overrides.clone();
                 async move {
                     let codex_home = home::current_interpreter_home()?;
-                    codex_app_server_launcher::ensure_local_app_server_url(
+                    // Only animate the startup line when the daemon isn't already
+                    // up and healthy — otherwise it would flash for a frame on
+                    // every launch even though there is nothing to wait for.
+                    let already_running = matches!(
+                        codex_app_server_launcher::local_app_server_status(&codex_home).await,
+                        Ok(Some(status))
+                            if status.health == codex_app_server_launcher::DaemonHealth::Ready
+                    );
+                    let status_line = (!already_running)
+                        .then(startup_status::StartupStatus::start)
+                        .flatten();
+
+                    let url = codex_app_server_launcher::ensure_local_app_server_url(
                         &codex_home,
                         app_server_bin,
                         daemon_cli_overrides,
                     )
                     .await
-                    .map_err(|err| std::io::Error::other(err.to_string()))
+                    .map_err(|err| std::io::Error::other(err.to_string()));
+
+                    if let Some(status_line) = status_line {
+                        status_line.finish();
+                    }
+                    url
                 }
             },
         )
         .await?
     };
     handle_app_exit(exit_info)
-}
-
-async fn print_root_tui_startup_message() {
-    if !std::io::stderr().is_terminal()
-        || std::env::var_os("OPEN_INTERPRETER_STARTUP_MESSAGE_SHOWN").is_some()
-    {
-        return;
-    }
-
-    let startup_message = match home::current_interpreter_home() {
-        Ok(codex_home) => {
-            match codex_app_server_launcher::local_app_server_status(&codex_home).await {
-                Ok(Some(_)) => "Connecting to Open Interpreter daemon...",
-                Ok(None) | Err(_) => "Starting Open Interpreter daemon. This only happens once...",
-            }
-        }
-        Err(_) => "Starting Open Interpreter daemon. This only happens once...",
-    };
-    eprint!("\r{startup_message}");
-    let _ = std::io::stderr().flush();
 }
 
 fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
