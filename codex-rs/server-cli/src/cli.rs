@@ -394,8 +394,13 @@ mod tests {
 
     #[test]
     fn app_server_generate_json_schema_parses_without_experimental() {
-        let cli =
-            ServerCli::parse_from(["interpreter", "app-server", "generate-json-schema", "--out", "/tmp/out"]);
+        let cli = ServerCli::parse_from([
+            "interpreter",
+            "app-server",
+            "generate-json-schema",
+            "--out",
+            "/tmp/out",
+        ]);
 
         let Some(Subcommand::AppServer(AppServerCommand {
             subcommand: AppServerSubcommand::GenerateJsonSchema(schema_cmd),
