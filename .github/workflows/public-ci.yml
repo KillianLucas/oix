@@ -26,6 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/install/install.sh
+          shellcheck -s sh scripts/install/install.sh
           grep -q 'KillianLucas/oix' scripts/install/install.sh
           grep -q 'KillianLucas/oix' scripts/install/install.ps1
           grep -q 'open-interpreter' scripts/install/install.sh
