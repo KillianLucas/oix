@@ -81,7 +81,6 @@ jobs:
       run:
         working-directory: codex-rs
     env:
-      CARGO_PROFILE_RELEASE_LTO: thin
       # The repo's .cargo/config.toml points rustc-wrapper at a /bin/sh sccache
       # helper to speed up local builds. Windows cannot exec a .sh wrapper (cargo
       # fails with os error 193) and release runners have no sccache, so disable
@@ -191,27 +190,11 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Add swap space for the aarch64 Linux LTO link
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The 16 GB aarch64 runner loses communication ("starves it for
-          # CPU/Memory") during the thin-LTO link of the v8-linked binaries. Add
-          # swap so peak link memory has headroom; the x86_64 runner builds fine
-          # without it, so leave that target untouched.
-          sudo fallocate -l 12G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          swapon --show
-          free -h
-
       - name: Build release binaries
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked --release --target "${{ matrix.target }}" \
+          cargo build --locked --profile interpreter-release --target "${{ matrix.target }}" \
             --bin interpreter \
             --bin interpreter-root-tui \
             --bin interpreter-tui \
@@ -228,7 +211,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_dir="target/${{ matrix.target }}/release"
+          release_dir="target/${{ matrix.target }}/interpreter-release"
           workspace_dir="${GITHUB_WORKSPACE}"
           temp_dir="${RUNNER_TEMP}"
           if [[ "${{ runner.os }}" == "Windows" ]]; then
