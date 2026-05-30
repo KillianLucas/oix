@@ -16,18 +16,24 @@ use codex_app_server_protocol::InterpreterModelListResponse;
 use codex_app_server_protocol::InterpreterModelSetParams;
 use codex_app_server_protocol::InterpreterModelSetResponse;
 use codex_app_server_protocol::InterpreterProvider;
+use codex_app_server_protocol::InterpreterProviderKind;
 use codex_app_server_protocol::InterpreterProviderListParams;
 use codex_app_server_protocol::InterpreterProviderListResponse;
 use codex_app_server_protocol::InterpreterProviderSetParams;
 use codex_app_server_protocol::InterpreterProviderSetResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
+use codex_app_server_protocol::ProviderReadinessDto;
 use codex_app_server_protocol::WireApiDto;
 use codex_core::config::Config;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_login::AuthManager;
 use codex_model_provider_info::WireApi;
-use codex_model_provider_info::bundled_provider_catalog;
 use codex_model_provider_info::harness_selection::harness_choices_for_provider_model;
+use codex_model_provider_info::provider_selection::ProviderChoice;
+use codex_model_provider_info::provider_selection::ProviderChoiceAction;
+use codex_model_provider_info::provider_selection::ProviderReadiness;
+use codex_model_provider_info::provider_selection::ProviderReadinessSnapshot;
+use codex_model_provider_info::provider_selection::model_picker_provider_choices_with_snapshot;
 
 use crate::error_code::INTERNAL_ERROR_CODE;
 use crate::error_code::INVALID_PARAMS_ERROR_CODE;
@@ -39,6 +45,15 @@ fn map_wire(wire_api: WireApi) -> WireApiDto {
         WireApi::Responses => WireApiDto::Responses,
         WireApi::Chat => WireApiDto::Chat,
         WireApi::Messages => WireApiDto::Messages,
+    }
+}
+
+fn map_readiness(readiness: ProviderReadiness) -> ProviderReadinessDto {
+    match readiness {
+        ProviderReadiness::LoggedIn => ProviderReadinessDto::LoggedIn,
+        ProviderReadiness::Ready => ProviderReadinessDto::Ready,
+        ProviderReadiness::Installed => ProviderReadinessDto::Installed,
+        ProviderReadiness::NeedsSetup => ProviderReadinessDto::NeedsSetup,
     }
 }
 
@@ -70,47 +85,73 @@ impl JsonRpcErrorExt for JSONRPCErrorError {
     }
 }
 
-/// List known providers: configured providers union the bundled catalog.
+/// List providers for the `/model` picker, identical to the TUI's list.
 ///
-/// `configured` is true for entries present in `config.model_providers`;
-/// `is_default` is true when the id equals `config.model_provider_id`.
-/// `include_unconfigured` defaults to true: when set (or omitted), bundled
-/// catalog entries not already configured are appended with `configured = false`.
+/// Built from `codex_model_provider_info::provider_selection`'s
+/// `model_picker_provider_choices_with_snapshot` so this matches the TUI
+/// exactly: configured providers union quick-add presets, with readiness
+/// labels, the OpenAI ChatGPT-vs-API-key split, and the readiness sort.
+///
+/// Each `ProviderChoice` maps to an `InterpreterProvider`. `kind` is `Existing`
+/// for configured providers and `QuickAdd` for presets; `configured` mirrors
+/// `kind == Existing`; `is_default` is true when the entry id equals
+/// `config.model_provider_id`. `base_url`/`wire_api`/`env_key` are populated for
+/// configured providers from `config.model_providers` and left unset for
+/// presets. `include_unconfigured` defaults to true; when `Some(false)`, the
+/// quick-add (preset) entries are dropped, leaving only configured providers.
 pub fn list_providers(
     config: &Config,
     params: InterpreterProviderListParams,
 ) -> InterpreterProviderListResponse {
     let include_unconfigured = params.include_unconfigured.unwrap_or(true);
-    let mut data: Vec<InterpreterProvider> = config
-        .model_providers
-        .iter()
-        .map(|(id, provider)| InterpreterProvider {
-            id: id.clone(),
-            name: provider.name.clone(),
-            base_url: provider.base_url.clone(),
-            wire_api: map_wire(provider.wire_api),
-            env_key: provider.env_key.clone(),
-            configured: true,
-            is_default: *id == config.model_provider_id,
+    let snapshot = ProviderReadinessSnapshot::from_system(config.codex_home.as_path());
+    let choices = model_picker_provider_choices_with_snapshot(
+        &config.model_providers,
+        &config.model_provider_id,
+        &snapshot,
+    );
+
+    let data: Vec<InterpreterProvider> = choices
+        .into_iter()
+        .filter(|choice| {
+            include_unconfigured || matches!(choice.action, ProviderChoiceAction::Existing)
+        })
+        .map(|choice| {
+            let ProviderChoice {
+                id,
+                name,
+                description,
+                readiness,
+                is_current,
+                starts_new_chat,
+                action,
+            } = choice;
+            let kind = match action {
+                ProviderChoiceAction::Existing => InterpreterProviderKind::Existing,
+                ProviderChoiceAction::QuickAdd(_) => InterpreterProviderKind::QuickAdd,
+            };
+            let configured = matches!(kind, InterpreterProviderKind::Existing);
+            // Carry concrete connection details for already-configured providers
+            // only; presets do not correspond to a `config.model_providers` entry.
+            let provider = configured
+                .then(|| config.model_providers.get(&id))
+                .flatten();
+            InterpreterProvider {
+                is_default: id == config.model_provider_id,
+                id,
+                name,
+                description,
+                readiness: map_readiness(readiness),
+                kind,
+                is_current,
+                starts_new_chat,
+                base_url: provider.and_then(|p| p.base_url.clone()),
+                wire_api: provider.map(|p| map_wire(p.wire_api)),
+                env_key: provider.and_then(|p| p.env_key.clone()),
+                configured,
+            }
         })
         .collect();
-
-    if include_unconfigured {
-        data.extend(
-            bundled_provider_catalog()
-                .iter()
-                .filter(|entry| !config.model_providers.contains_key(&entry.id))
-                .map(|entry| InterpreterProvider {
-                    id: entry.id.clone(),
-                    name: entry.name.clone(),
-                    base_url: Some(entry.base_url.clone()),
-                    wire_api: map_wire(entry.wire_api),
-                    env_key: entry.env_key.clone(),
-                    configured: false,
-                    is_default: entry.id == config.model_provider_id,
-                }),
-        );
-    }
 
     InterpreterProviderListResponse { data }
 }
@@ -298,9 +339,18 @@ mod tests {
             },
         );
 
+        // Dropping unconfigured entries leaves only Existing (configured) providers.
         assert!(
-            response.data.iter().all(|p| p.configured),
-            "every entry from config.model_providers should be marked configured"
+            response
+                .data
+                .iter()
+                .all(|p| p.configured && matches!(p.kind, InterpreterProviderKind::Existing)),
+            "with include_unconfigured = false, every entry is a configured Existing provider"
+        );
+        let ids = provider_ids(&response);
+        assert!(
+            ids.contains(&"custom-a") && ids.contains(&"custom-b"),
+            "inserted custom providers are listed as configured"
         );
         let defaults: Vec<&str> = response
             .data
@@ -316,7 +366,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_providers_excludes_catalog_when_not_requested() {
+    async fn list_providers_excludes_presets_when_not_requested() {
         let config = empty_config().await;
 
         let response = list_providers(
@@ -326,16 +376,25 @@ mod tests {
             },
         );
 
-        // "openrouter" is in the bundled catalog but is not a built-in provider,
-        // so it must not appear unless unconfigured providers were requested.
+        // Quick-add presets (openrouter, anthropic, and the OpenAI ChatGPT split)
+        // are not configured providers, so they must be dropped here.
+        let ids = provider_ids(&response);
         assert!(
-            !provider_ids(&response).contains(&"openrouter"),
-            "catalog-only providers must be excluded when include_unconfigured = false"
+            !ids.contains(&"openrouter"),
+            "preset providers must be excluded when include_unconfigured = false"
+        );
+        assert!(
+            !ids.contains(&"anthropic"),
+            "unconfigured catalog presets must be excluded"
+        );
+        assert!(
+            !ids.contains(&"openai::chatgpt"),
+            "the OpenAI ChatGPT quick-add split must be excluded"
         );
     }
 
     #[tokio::test]
-    async fn list_providers_appends_catalog_without_duplicating_configured() {
+    async fn list_providers_includes_presets_and_mirrors_tui_choices() {
         let mut config = empty_config().await;
         // Configure a provider that also exists in the bundled catalog.
         config.model_providers.insert(
@@ -350,18 +409,20 @@ mod tests {
             },
         );
 
-        // A catalog-only provider appears as unconfigured.
+        // A preset-only provider appears as an unconfigured QuickAdd entry, with a
+        // readiness label and a non-empty description (the picker subtitle).
         let openrouter = response
             .data
             .iter()
             .find(|p| p.id == "openrouter")
-            .expect("bundled catalog provider should be appended");
-        assert!(
-            !openrouter.configured,
-            "appended catalog providers are not configured"
-        );
+            .expect("preset provider should be listed");
+        assert!(!openrouter.configured);
+        assert!(matches!(openrouter.kind, InterpreterProviderKind::QuickAdd));
+        assert_eq!(openrouter.readiness, ProviderReadinessDto::NeedsSetup);
+        assert!(!openrouter.description.is_empty());
+        assert!(openrouter.starts_new_chat);
 
-        // The configured catalog provider is not duplicated by the catalog pass.
+        // The configured catalog provider is not duplicated by the preset pass.
         let anthropic: Vec<&InterpreterProvider> = response
             .data
             .iter()
@@ -370,11 +431,42 @@ mod tests {
         assert_eq!(
             anthropic.len(),
             1,
-            "a configured provider must not be duplicated by the catalog"
+            "a configured provider must not be duplicated by a preset"
+        );
+        assert!(anthropic[0].configured);
+        assert!(matches!(
+            anthropic[0].kind,
+            InterpreterProviderKind::Existing
+        ));
+        // Connection details are carried for configured providers.
+        assert_eq!(anthropic[0].wire_api, Some(WireApiDto::Messages));
+    }
+
+    #[tokio::test]
+    async fn list_providers_splits_openai_chatgpt_and_api_key() {
+        let config = empty_config().await;
+
+        let response = list_providers(
+            &config,
+            InterpreterProviderListParams {
+                include_unconfigured: Some(true),
+            },
+        );
+
+        let ids = provider_ids(&response);
+        // The built-in `openai` provider is rendered as the ChatGPT quick-add split
+        // rather than a bare `openai` entry, alongside the API-key preset.
+        assert!(
+            ids.contains(&"openai::chatgpt"),
+            "OpenAI ChatGPT split should be present"
         );
         assert!(
-            anthropic[0].configured,
-            "the surviving anthropic entry is the configured one"
+            ids.contains(&"openai_api_key"),
+            "OpenAI API-key preset should be present"
+        );
+        assert!(
+            !ids.contains(&"openai"),
+            "raw `openai` id should be replaced by the ChatGPT split"
         );
     }
 

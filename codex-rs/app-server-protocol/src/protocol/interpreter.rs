@@ -30,18 +30,63 @@ pub enum WireApiDto {
     Messages,
 }
 
-/// A known provider: the union of configured providers and the bundled
-/// catalog. `configured` is true when present in `config.model_providers`;
-/// `is_default` is true when its id equals `config.model_provider_id`.
+/// Readiness label for a provider entry, mirroring the TUI `/model` picker.
+/// Drives the trailing decoration on `description` (e.g. "· Logged in").
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub enum ProviderReadinessDto {
+    /// Signed in (OpenAI ChatGPT auth).
+    LoggedIn,
+    /// Credentials present (API key / bearer token / command auth).
+    Ready,
+    /// A local provider binary is installed (e.g. Ollama).
+    Installed,
+    /// Needs setup before it can be used.
+    NeedsSetup,
+}
+
+/// Whether a provider entry is already configured (`Existing`) or would be
+/// added on selection from a quick-add preset (`QuickAdd`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub enum InterpreterProviderKind {
+    /// Already present in `config.model_providers`.
+    Existing,
+    /// A quick-add preset that would be written to config on selection.
+    QuickAdd,
+}
+
+/// One provider entry for the `/model` picker, mirroring the TUI's
+/// `ProviderChoice`. The list is the union of configured providers and
+/// quick-add presets, with the OpenAI ChatGPT-vs-API-key split and readiness
+/// sort already applied by the server.
+///
+/// `description` is the picker subtitle (already decorated with the readiness
+/// suffix and any "| Harness: <name>" hint). `readiness` is the raw label.
+/// `is_current` marks the active provider; `starts_new_chat` is true when
+/// selecting this entry begins a new chat (i.e. it is not the current
+/// provider). `kind` distinguishes already-configured entries from quick-add
+/// presets. `configured` is true exactly when `kind == Existing`; `is_default`
+/// is true when `id` equals `config.model_provider_id`. `base_url`, `wire_api`,
+/// and `env_key` are present for configured providers and may be absent for
+/// presets.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct InterpreterProvider {
     pub id: String,
     pub name: String,
+    pub description: String,
+    pub readiness: ProviderReadinessDto,
+    pub kind: InterpreterProviderKind,
+    pub is_current: bool,
+    pub starts_new_chat: bool,
     #[ts(optional)]
     pub base_url: Option<String>,
-    pub wire_api: WireApiDto,
+    #[ts(optional)]
+    pub wire_api: Option<WireApiDto>,
     #[ts(optional)]
     pub env_key: Option<String>,
     pub configured: bool,

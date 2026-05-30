@@ -146,7 +146,11 @@ impl ChatWidget {
     fn show_model_provider_popup(&mut self, startup_mode: bool) {
         self.show_model_provider_popup_with_choices(
             startup_mode,
-            model_picker_provider_choices(&self.config),
+            model_picker_provider_choices(
+                &self.config.model_providers,
+                &self.config.model_provider_id,
+                self.config.codex_home.as_path(),
+            ),
         );
     }
 
@@ -225,7 +229,11 @@ impl ChatWidget {
     ) {
         self.show_model_provider_popup_with_choices(
             startup_mode,
-            model_picker_provider_choices_with_snapshot(&self.config, snapshot),
+            model_picker_provider_choices_with_snapshot(
+                &self.config.model_providers,
+                &self.config.model_provider_id,
+                snapshot,
+            ),
         );
     }
 

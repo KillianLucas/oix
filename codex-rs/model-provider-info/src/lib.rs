@@ -7,6 +7,7 @@
 
 mod bundled_provider_catalog;
 pub mod harness_selection;
+pub mod provider_selection;
 
 pub use bundled_provider_catalog::BundledProviderCatalogEntry;
 pub use bundled_provider_catalog::BundledProviderModelEntry;

@@ -172,6 +172,7 @@ export type { InterpreterModelListResponse } from "./InterpreterModelListRespons
 export type { InterpreterModelSetParams } from "./InterpreterModelSetParams";
 export type { InterpreterModelSetResponse } from "./InterpreterModelSetResponse";
 export type { InterpreterProvider } from "./InterpreterProvider";
+export type { InterpreterProviderKind } from "./InterpreterProviderKind";
 export type { InterpreterProviderListParams } from "./InterpreterProviderListParams";
 export type { InterpreterProviderListResponse } from "./InterpreterProviderListResponse";
 export type { InterpreterProviderSetParams } from "./InterpreterProviderSetParams";
@@ -286,6 +287,7 @@ export type { PluginUninstallParams } from "./PluginUninstallParams";
 export type { PluginUninstallResponse } from "./PluginUninstallResponse";
 export type { PluginsMigration } from "./PluginsMigration";
 export type { ProfileV2 } from "./ProfileV2";
+export type { ProviderReadinessDto } from "./ProviderReadinessDto";
 export type { RateLimitReachedType } from "./RateLimitReachedType";
 export type { RateLimitSnapshot } from "./RateLimitSnapshot";
 export type { RateLimitWindow } from "./RateLimitWindow";
