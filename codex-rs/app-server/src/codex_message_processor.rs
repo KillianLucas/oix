@@ -1348,7 +1348,13 @@ impl CodexMessageProcessor {
             }
             ClientRequest::InterpreterProviderSet { request_id, params } => {
                 let request_id = to_connection_request_id(request_id);
-                match crate::interpreter_api::set_provider(&self.config, params).await {
+                match crate::interpreter_api::set_provider(
+                    &self.config,
+                    &self.config_manager,
+                    params,
+                )
+                .await
+                {
                     Ok(response) => self.outgoing.send_response(request_id, response).await,
                     Err(error) => self.outgoing.send_error(request_id, error).await,
                 }

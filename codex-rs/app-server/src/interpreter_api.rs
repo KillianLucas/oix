@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use codex_app_server_protocol::ConfigBatchWriteParams;
+use codex_app_server_protocol::ConfigEdit;
 use codex_app_server_protocol::InterpreterHarness;
 use codex_app_server_protocol::InterpreterHarnessListParams;
 use codex_app_server_protocol::InterpreterHarnessListResponse;
@@ -31,10 +33,15 @@ use codex_model_provider_info::WireApi;
 use codex_model_provider_info::harness_selection::harness_choices_for_provider_model;
 use codex_model_provider_info::provider_selection::ProviderChoice;
 use codex_model_provider_info::provider_selection::ProviderChoiceAction;
+use codex_model_provider_info::provider_selection::ProviderPreset;
+use codex_model_provider_info::provider_selection::ProviderPresetQuickAddAction;
 use codex_model_provider_info::provider_selection::ProviderReadiness;
 use codex_model_provider_info::provider_selection::ProviderReadinessSnapshot;
 use codex_model_provider_info::provider_selection::model_picker_provider_choices_with_snapshot;
+use codex_model_provider_info::provider_selection::provider_preset_by_id;
+use codex_model_provider_info::provider_selection::set_path;
 
+use crate::config_manager::ConfigManager;
 use crate::error_code::INTERNAL_ERROR_CODE;
 use crate::error_code::INVALID_PARAMS_ERROR_CODE;
 use crate::models::supported_models;
@@ -215,23 +222,94 @@ pub fn list_harnesses(
 }
 
 /// Persist the selected provider to config (affects future turns).
+///
+/// When `provider_id` names a quick-add preset that is not yet configured, the
+/// preset's provider definition is written before it is selected, mirroring the
+/// TUI's selection flow so the provider is actually usable. Presets that require
+/// an API key with none in the environment must supply `api_key`. The synthetic
+/// `openai::chatgpt` picker id is normalized to its base provider id.
 pub async fn set_provider(
     config: &Config,
+    config_manager: &ConfigManager,
     params: InterpreterProviderSetParams,
 ) -> Result<InterpreterProviderSetResponse, JSONRPCErrorError> {
     let InterpreterProviderSetParams {
         provider_id,
         profile,
+        api_key,
     } = params;
-    ConfigEditsBuilder::new(&config.codex_home)
-        .with_profile(profile.as_deref())
-        .set_model_provider(&provider_id)
-        .apply()
+    let provider_id = provider_id
+        .split_once("::")
+        .map(|(base, _)| base.to_string())
+        .unwrap_or(provider_id);
+
+    let mut edits: Vec<ConfigEdit> = Vec::new();
+    if !config.model_providers.contains_key(&provider_id)
+        && let Some(preset) = provider_preset_by_id(&provider_id)
+    {
+        edits.extend(preset_definition_edits(
+            &preset,
+            &provider_id,
+            api_key.as_deref(),
+        )?);
+    }
+
+    // Select the provider, scoped to the profile when one is given (the same key
+    // `ConfigEditsBuilder::set_model_provider` writes).
+    let select_key = match profile.as_deref() {
+        Some(profile) => format!("profiles.{profile}.model_provider"),
+        None => "model_provider".to_string(),
+    };
+    edits.push(set_path(select_key, serde_json::json!(provider_id)));
+
+    config_manager
+        .batch_write(ConfigBatchWriteParams {
+            edits,
+            file_path: None,
+            expected_version: None,
+            reload_user_config: true,
+        })
         .await
         .map_err(|err| {
             JSONRPCErrorError::internal(format!("failed to set model provider: {err}"))
         })?;
     Ok(InterpreterProviderSetResponse {})
+}
+
+/// Provider-definition edits for a not-yet-configured quick-add preset, mirroring
+/// what the TUI writes when the same preset is chosen.
+fn preset_definition_edits(
+    preset: &ProviderPreset,
+    provider_id: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<ConfigEdit>, JSONRPCErrorError> {
+    match preset.quick_add_action() {
+        // Built-in/already-resolvable presets (Ollama, ChatGPT, env-key present):
+        // the edits may be empty, in which case selection alone suffices.
+        Some(ProviderPresetQuickAddAction::WriteEdits(edits)) => Ok(edits),
+        // The preset needs an API key and none was found in the environment.
+        Some(ProviderPresetQuickAddAction::PromptForApiKey) => {
+            let api_key = api_key
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .ok_or_else(|| {
+                    JSONRPCErrorError::invalid_params(format!(
+                        "provider `{provider_id}` requires an API key; pass `api_key`"
+                    ))
+                })?;
+            Ok(preset.provider_definition_edits(
+                &preset.configured_provider_id(None),
+                &preset.configured_provider_name(None),
+                &preset.base_url,
+                api_key,
+                /*api_key_prefilled_from_env*/ false,
+            ))
+        }
+        // Custom (base-URL-editable) presets cannot be added from an id alone.
+        None => Err(JSONRPCErrorError::invalid_params(format!(
+            "provider `{provider_id}` cannot be added automatically; configure it explicitly"
+        ))),
+    }
 }
 
 /// Persist the selected model (and optional reasoning effort) to config.

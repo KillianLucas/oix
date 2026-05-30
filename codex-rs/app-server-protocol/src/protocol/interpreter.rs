@@ -172,6 +172,10 @@ pub struct InterpreterProviderSetParams {
     /// Optional config profile to write to instead of the top level.
     #[ts(optional = nullable)]
     pub profile: Option<String>,
+    /// API key for a quick-add preset that requires one and has no matching
+    /// environment variable set. Ignored for already-configured providers.
+    #[ts(optional = nullable)]
+    pub api_key: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema, TS)]

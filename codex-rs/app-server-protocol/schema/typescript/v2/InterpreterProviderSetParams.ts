@@ -9,4 +9,9 @@ export type InterpreterProviderSetParams = { providerId: string,
 /**
  * Optional config profile to write to instead of the top level.
  */
-profile?: string | null, };
+profile?: string | null,
+/**
+ * API key for a quick-add preset that requires one and has no matching
+ * environment variable set. Ignored for already-configured providers.
+ */
+apiKey?: string | null, };
