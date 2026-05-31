@@ -46,7 +46,7 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
     })
 }
 
-// UX: when we think we're current, re-check every startup. The 20h throttle would
+// UX: when we think we're current, re-check every startup. The 1h throttle would
 // otherwise hide a release published just after our last check; a pending upgrade
 // installs next launch regardless, so keep throttling that case.
 fn should_check_for_update(info: Option<&VersionInfo>, now: DateTime<Utc>) -> bool {
@@ -54,7 +54,7 @@ fn should_check_for_update(info: Option<&VersionInfo>, now: DateTime<Utc>) -> bo
         None => true,
         Some(info) => {
             let pending = is_newer(&info.latest_version, CODEX_CLI_VERSION).unwrap_or(false);
-            !pending || info.last_checked_at < now - Duration::hours(20)
+            !pending || info.last_checked_at < now - Duration::hours(1)
         }
     }
 }
@@ -343,7 +343,7 @@ mod tests {
         assert!(!should_check_for_update(Some(&info("999.0.0", fresh)), now));
         // Known pending upgrade, stale: re-check.
         assert!(should_check_for_update(
-            Some(&info("999.0.0", now - Duration::hours(21))),
+            Some(&info("999.0.0", now - Duration::hours(2))),
             now
         ));
     }
