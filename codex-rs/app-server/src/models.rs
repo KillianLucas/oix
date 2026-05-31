@@ -7,6 +7,8 @@ use codex_core::config::Config;
 use codex_features::Feature;
 use codex_login::AuthManager;
 use codex_model_provider::create_model_provider;
+use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::provider_selection::provider_preset_by_id;
 use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::openai_models::ModelPreset;
@@ -22,18 +24,15 @@ pub async fn supported_models(
             .features
             .enabled(Feature::DefaultModeRequestUserInput),
     };
-    create_model_provider(config.model_provider.clone(), Some(auth_manager))
+    let models = create_model_provider(config.model_provider.clone(), Some(auth_manager))
         .models_manager(
             provider_cache_home(config, config.model_provider_id.as_str()),
             config.model_catalog.clone(),
             collaboration_modes_config,
         )
         .list_models(RefreshStrategy::OnlineIfUncached)
-        .await
-        .into_iter()
-        .filter(|preset| include_hidden || preset.show_in_picker)
-        .map(model_from_preset)
-        .collect()
+        .await;
+    presets_into_models(models, include_hidden)
 }
 
 pub async fn supported_models_for_provider(
@@ -42,35 +41,66 @@ pub async fn supported_models_for_provider(
     provider_id: &str,
     include_hidden: bool,
 ) -> Result<Vec<Model>, String> {
-    let provider = config
-        .model_providers
-        .get(provider_id)
-        .cloned()
-        .ok_or_else(|| format!("model provider `{provider_id}` not found"))?;
     let collaboration_modes_config = CollaborationModesConfig {
         default_mode_request_user_input: config
             .features
             .enabled(Feature::DefaultModeRequestUserInput),
     };
-    let model_catalog = if provider_id == config.model_provider_id {
-        config.model_catalog.clone()
-    } else {
-        None
+
+    // A configured provider queries its full catalog (cache/online), and the
+    // active provider additionally layers the user's `model_catalog` override.
+    // An unconfigured quick-add preset has no `model_providers` entry yet, so we
+    // build a transient provider from the preset and return its bundled catalog
+    // offline. That lets the picker browse a provider's models before it is
+    // added to config, without a network round-trip or an API key.
+    let (provider, model_catalog, refresh_strategy) = match config.model_providers.get(provider_id)
+    {
+        Some(provider) => {
+            let model_catalog = if provider_id == config.model_provider_id {
+                config.model_catalog.clone()
+            } else {
+                None
+            };
+            (
+                provider.clone(),
+                model_catalog,
+                RefreshStrategy::OnlineIfUncached,
+            )
+        }
+        None => {
+            let preset = provider_preset_by_id(provider_id)
+                .ok_or_else(|| format!("model provider `{provider_id}` not found"))?;
+            let provider = ModelProviderInfo {
+                name: preset.title.clone(),
+                base_url: Some(preset.base_url.clone()),
+                env_key: preset.api_key_env_var.clone(),
+                wire_api: preset.wire_api(),
+                ..Default::default()
+            };
+            (provider, None, RefreshStrategy::Offline)
+        }
     };
+
     let models = create_model_provider(provider, Some(auth_manager))
         .models_manager(
             provider_cache_home(config, provider_id),
             model_catalog,
             collaboration_modes_config,
         )
-        .list_models(RefreshStrategy::OnlineIfUncached)
+        .list_models(refresh_strategy)
         .await;
 
-    Ok(models
+    Ok(presets_into_models(models, include_hidden))
+}
+
+/// Filter out picker-hidden presets (unless `include_hidden`) and map the
+/// remaining presets to the app-server `Model` wire type.
+fn presets_into_models(models: Vec<ModelPreset>, include_hidden: bool) -> Vec<Model> {
+    models
         .into_iter()
         .filter(|preset| include_hidden || preset.show_in_picker)
         .map(model_from_preset)
-        .collect())
+        .collect()
 }
 
 pub(crate) fn model_from_preset(preset: ModelPreset) -> Model {
@@ -202,6 +232,53 @@ mod tests {
             !models.iter().any(|model| model.model.starts_with("gpt-")),
             "expected Anthropic model picker to exclude OpenAI bundled models"
         );
+    }
+
+    #[tokio::test]
+    async fn supported_models_for_provider_falls_back_to_bundled_preset_when_unconfigured() {
+        let temp_dir = tempdir().expect("tempdir");
+        let config = codex_core::config::ConfigBuilder::default()
+            .codex_home(temp_dir.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        // Quick-add presets are not written to `model_providers`, so listing their
+        // models must work before the provider is configured.
+        assert!(
+            !config.model_providers.contains_key("openrouter"),
+            "precondition: openrouter must be unconfigured for this test"
+        );
+
+        let auth = || AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
+
+        // OpenRouter preset → bundled slug catalog (this is the hosted catalog the
+        // app's hosted picker browses).
+        let openrouter = supported_models_for_provider(&config, auth(), "openrouter", false)
+            .await
+            .expect("openrouter preset models");
+        assert!(
+            openrouter
+                .iter()
+                .any(|model| model.model == "anthropic/claude-sonnet-4.6"),
+            "expected the unconfigured OpenRouter preset to expose its bundled slug catalog"
+        );
+
+        // Anthropic preset → bundled Claude catalog, no OpenAI bleed-through.
+        let anthropic = supported_models_for_provider(&config, auth(), "anthropic", false)
+            .await
+            .expect("anthropic preset models");
+        assert!(
+            anthropic
+                .iter()
+                .any(|model| model.model == "claude-sonnet-4-6"),
+            "expected the unconfigured Anthropic preset to expose its bundled catalog"
+        );
+
+        // An id that is neither configured nor a known preset still errors.
+        let err = supported_models_for_provider(&config, auth(), "not-a-real-provider", false)
+            .await
+            .expect_err("unknown provider id must error");
+        assert!(err.contains("not found"), "unexpected error: {err}");
     }
 
     #[tokio::test]
