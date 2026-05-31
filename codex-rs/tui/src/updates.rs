@@ -236,16 +236,33 @@ fn spawn_update_command(
         // process exit drops the guard and releases it.
         let _lock_guard = lock_guard;
         let (command, args) = update_action.command_args();
-        let command_status = std::process::Command::new(command)
+        let mut command = std::process::Command::new(command);
+        // The installer must never surface its interactive launch prompt over the
+        // live TUI. Null stdio and the non-interactive flag cover a cooperating
+        // installer; detaching into a new session (no controlling terminal) is the
+        // backstop, since a stale install.sh can still open /dev/tty to print or
+        // block on a prompt even with stdio nulled.
+        command
             .args(args)
-            // Re-running the installer must never block on a TTY prompt: it reads
-            // /dev/tty directly even when stdio is null, which would otherwise
-            // render onto the live terminal and park this thread on a tty read.
             .env("OPEN_INTERPRETER_NONINTERACTIVE", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            unsafe {
+                command.pre_exec(codex_utils_pty::process_group::detach_from_tty);
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+        }
+        let command_status = command.status();
         match command_status {
             Ok(status) if status.success() => {
                 if let Some(parent) = marker_parent {
