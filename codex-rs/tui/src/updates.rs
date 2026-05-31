@@ -27,10 +27,7 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
     let version_file = version_filepath(config);
     let info = read_version_info(&version_file).ok();
 
-    if match &info {
-        None => true,
-        Some(info) => info.last_checked_at < Utc::now() - Duration::hours(20),
-    } {
+    if should_check_for_update(info.as_ref(), Utc::now()) {
         // Refresh the cached latest version in the background so TUI startup
         // isn't blocked by a network call.
         tokio::spawn(async move {
@@ -47,6 +44,19 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
             None
         }
     })
+}
+
+// UX: when we think we're current, re-check every startup. The 20h throttle would
+// otherwise hide a release published just after our last check; a pending upgrade
+// installs next launch regardless, so keep throttling that case.
+fn should_check_for_update(info: Option<&VersionInfo>, now: DateTime<Utc>) -> bool {
+    match info {
+        None => true,
+        Some(info) => {
+            let pending = is_newer(&info.latest_version, CODEX_CLI_VERSION).unwrap_or(false);
+            !pending || info.last_checked_at < now - Duration::hours(20)
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -311,6 +321,31 @@ mod tests {
     fn whitespace_is_ignored() {
         assert_eq!(parse_version(" 1.2.3 \n"), Some((1, 2, 3)));
         assert_eq!(is_newer(" 1.2.3 ", "1.2.2"), Some(true));
+    }
+
+    #[test]
+    fn rechecks_each_startup_when_current_but_throttles_pending_upgrade() {
+        let now = Utc::now();
+        let fresh = now - Duration::minutes(1);
+        let info = |latest: &str, checked| VersionInfo {
+            latest_version: latest.to_string(),
+            last_checked_at: checked,
+        };
+
+        // No cache: always check.
+        assert!(should_check_for_update(None, now));
+        // Believed current (cached == running): re-check even when freshly checked.
+        assert!(should_check_for_update(
+            Some(&info(CODEX_CLI_VERSION, fresh)),
+            now
+        ));
+        // Known pending upgrade, freshly checked: stay throttled.
+        assert!(!should_check_for_update(Some(&info("999.0.0", fresh)), now));
+        // Known pending upgrade, stale: re-check.
+        assert!(should_check_for_update(
+            Some(&info("999.0.0", now - Duration::hours(21))),
+            now
+        ));
     }
 
     use tempfile::tempdir;
