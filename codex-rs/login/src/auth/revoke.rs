@@ -51,35 +51,43 @@ struct RevokeTokenRequest<'a> {
     client_id: Option<&'static str>,
 }
 
-pub(super) async fn revoke_auth_tokens(
+pub(crate) async fn revoke_auth_tokens(
     auth_dot_json: Option<&AuthDotJson>,
 ) -> Result<(), std::io::Error> {
-    let Some(tokens) = auth_dot_json.and_then(managed_chatgpt_tokens) else {
+    let Some((token, kind)) = auth_dot_json.and_then(revocable_token) else {
         return Ok(());
     };
 
     let client = create_client();
     let endpoint = revoke_token_endpoint();
+    revoke_oauth_token(&client, endpoint.as_str(), token, kind, REVOKE_HTTP_TIMEOUT).await
+}
+
+pub(crate) fn should_revoke_auth_tokens(
+    auth_dot_json: Option<&AuthDotJson>,
+    replacement_auth: &AuthDotJson,
+) -> bool {
+    let Some((token, kind)) = auth_dot_json.and_then(revocable_token) else {
+        return false;
+    };
+    let Some(replacement_tokens) = managed_chatgpt_tokens(replacement_auth) else {
+        return true;
+    };
+
+    match kind {
+        RevokeTokenKind::Access => replacement_tokens.access_token != token,
+        RevokeTokenKind::Refresh => replacement_tokens.refresh_token != token,
+    }
+}
+
+fn revocable_token(auth_dot_json: &AuthDotJson) -> Option<(&str, RevokeTokenKind)> {
+    let tokens = managed_chatgpt_tokens(auth_dot_json)?;
     if !tokens.refresh_token.is_empty() {
-        revoke_oauth_token(
-            &client,
-            endpoint.as_str(),
-            tokens.refresh_token.as_str(),
-            RevokeTokenKind::Refresh,
-            REVOKE_HTTP_TIMEOUT,
-        )
-        .await
+        Some((tokens.refresh_token.as_str(), RevokeTokenKind::Refresh))
     } else if !tokens.access_token.is_empty() {
-        revoke_oauth_token(
-            &client,
-            endpoint.as_str(),
-            tokens.access_token.as_str(),
-            RevokeTokenKind::Access,
-            REVOKE_HTTP_TIMEOUT,
-        )
-        .await
+        Some((tokens.access_token.as_str(), RevokeTokenKind::Access))
     } else {
-        Ok(())
+        None
     }
 }
 
@@ -175,6 +183,37 @@ mod tests {
             derive_revoke_token_endpoint("http://127.0.0.1:1234/oauth/token?unified=true"),
             Some("http://127.0.0.1:1234/oauth/revoke".to_string())
         );
+    }
+
+    #[test]
+    fn should_revoke_auth_tokens_skips_reused_refresh_token() {
+        let previous = chatgpt_auth("old-access", "shared-refresh");
+        let replacement = chatgpt_auth("new-access", "shared-refresh");
+
+        assert!(!should_revoke_auth_tokens(Some(&previous), &replacement));
+    }
+
+    #[test]
+    fn should_revoke_auth_tokens_revokes_superseded_refresh_token() {
+        let previous = chatgpt_auth("old-access", "old-refresh");
+        let replacement = chatgpt_auth("new-access", "new-refresh");
+
+        assert!(should_revoke_auth_tokens(Some(&previous), &replacement));
+    }
+
+    fn chatgpt_auth(access_token: &str, refresh_token: &str) -> AuthDotJson {
+        AuthDotJson {
+            auth_mode: Some(ApiAuthMode::Chatgpt),
+            openai_api_key: None,
+            tokens: Some(TokenData {
+                id_token: Default::default(),
+                access_token: access_token.to_string(),
+                refresh_token: refresh_token.to_string(),
+                account_id: None,
+            }),
+            last_refresh: None,
+            agent_identity: None,
+        }
     }
 
     #[tokio::test]

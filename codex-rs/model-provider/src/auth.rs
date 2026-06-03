@@ -8,6 +8,7 @@ use codex_api::SharedAuthProvider;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_protocol::error::CodexErr;
 use http::HeaderMap;
 use http::HeaderValue;
 
@@ -114,6 +115,16 @@ fn bearer_auth_provider_from_auth(
             token_header_name: Some(provider.auth_header_name()),
             use_bearer_prefix: provider.auth_header_prefix().is_some(),
         })
+    } else if provider.requires_openai_auth {
+        let provider_name = provider_display_name(provider);
+        Err(CodexErr::InvalidRequest(format!(
+            "Authentication required for {provider_name}. Sign in with ChatGPT or configure API key auth before starting a chat."
+        )))
+    } else if provider.has_command_auth() {
+        let provider_name = provider_display_name(provider);
+        Err(CodexErr::InvalidRequest(format!(
+            "Authentication required for {provider_name}. The configured provider auth command did not return a token."
+        )))
     } else {
         Ok(BearerAuthProvider {
             token: None,
@@ -122,6 +133,14 @@ fn bearer_auth_provider_from_auth(
             token_header_name: Some(provider.auth_header_name()),
             use_bearer_prefix: provider.auth_header_prefix().is_some(),
         })
+    }
+}
+
+fn provider_display_name(provider: &ModelProviderInfo) -> &str {
+    if provider.name.trim().is_empty() {
+        "the selected provider"
+    } else {
+        provider.name.as_str()
     }
 }
 
@@ -152,8 +171,11 @@ pub fn auth_provider_from_auth(auth: &CodexAuth) -> SharedAuthProvider {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
+
     use codex_model_provider_info::WireApi;
     use codex_model_provider_info::create_oss_provider_with_base_url;
+    use codex_protocol::config_types::ModelProviderAuthInfo;
 
     use super::*;
 
@@ -164,5 +186,50 @@ mod tests {
         let auth = resolve_provider_auth(/*auth*/ None, &provider).expect("auth should resolve");
 
         assert!(auth.to_auth_headers().is_empty());
+    }
+
+    #[test]
+    fn openai_auth_provider_requires_sign_in_when_auth_is_missing() {
+        let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+
+        let error = match resolve_provider_auth(/*auth*/ None, &provider) {
+            Ok(_) => panic!("missing OpenAI auth should fail before sending a request"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, CodexErr::InvalidRequest(_)));
+        assert!(
+            error.to_string().contains("Sign in with ChatGPT"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn command_auth_provider_requires_token_when_auth_is_missing() {
+        let provider = ModelProviderInfo {
+            auth: Some(ModelProviderAuthInfo {
+                command: "missing-token-command".to_string(),
+                args: Vec::new(),
+                timeout_ms: NonZeroU64::new(5_000).expect("timeout should be non-zero"),
+                refresh_interval_ms: 300_000,
+                cwd: std::env::current_dir()
+                    .expect("current dir should be available")
+                    .try_into()
+                    .expect("current dir should be absolute"),
+            }),
+            requires_openai_auth: false,
+            ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+        };
+
+        let error = match resolve_provider_auth(/*auth*/ None, &provider) {
+            Ok(_) => panic!("missing command auth should fail before sending a request"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, CodexErr::InvalidRequest(_)));
+        assert!(
+            error.to_string().contains("provider auth command"),
+            "unexpected error: {error}"
+        );
     }
 }
