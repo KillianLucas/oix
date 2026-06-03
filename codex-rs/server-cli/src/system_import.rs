@@ -105,11 +105,15 @@ fn import_auth_file(interpreter_home: &Path, snapshot: &SystemImportSnapshot) ->
     let interpreter_auth_path = interpreter_home.join(AUTH_JSON_FILE);
     if let Some(codex_home) = snapshot.codex_home.as_deref() {
         let codex_auth_path = codex_home.join(AUTH_JSON_FILE);
-        if codex_auth_path.exists() && !same_path(interpreter_home, codex_home) {
-            let codex_auth = read_auth_info(&codex_auth_path)?;
-            if codex_auth.as_ref().is_some_and(|auth| auth.is_chatgpt) {
-                if should_share_codex_chatgpt_auth(&interpreter_auth_path, codex_auth.as_ref())? {
-                    replace_with_auth_file_reference(&interpreter_auth_path, &codex_auth_path)?;
+        if codex_auth_path.exists() && interpreter_home != codex_home {
+            if let Some(codex_auth) = read_auth_info(&codex_auth_path)? {
+                if codex_auth.is_chatgpt {
+                    if should_share_codex_chatgpt_auth(&interpreter_auth_path, &codex_auth)? {
+                        replace_with_auth_file_reference(&interpreter_auth_path, &codex_auth_path)?;
+                        return Ok(());
+                    }
+                } else if !interpreter_auth_path.exists() {
+                    std::fs::copy(codex_auth_path, interpreter_auth_path)?;
                     return Ok(());
                 }
             } else if !interpreter_auth_path.exists() {
@@ -148,11 +152,8 @@ fn import_auth_file(interpreter_home: &Path, snapshot: &SystemImportSnapshot) ->
 
 fn should_share_codex_chatgpt_auth(
     interpreter_auth_path: &Path,
-    codex_auth: Option<&AuthInfo>,
+    codex_auth: &AuthInfo,
 ) -> io::Result<bool> {
-    let Some(codex_auth) = codex_auth else {
-        return Ok(false);
-    };
     if !interpreter_auth_path.exists() {
         return Ok(true);
     }
@@ -160,18 +161,18 @@ fn should_share_codex_chatgpt_auth(
     let Some(interpreter_auth) = read_auth_info(interpreter_auth_path)? else {
         return Ok(false);
     };
-    if !codex_auth.is_chatgpt || !interpreter_auth.is_chatgpt {
+    if !interpreter_auth.is_chatgpt {
         return Ok(false);
     }
 
-    if !auth_accounts_compatible(
+    match (
         codex_auth.account_id.as_deref(),
         interpreter_auth.account_id.as_deref(),
     ) {
-        return Ok(false);
+        (Some(candidate), Some(current)) => Ok(candidate == current),
+        (Some(_), None) | (None, None) => Ok(true),
+        (None, Some(_)) => Ok(false),
     }
-
-    Ok(true)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,19 +208,11 @@ fn read_auth_info(path: &Path) -> io::Result<Option<AuthInfo>> {
     }))
 }
 
-fn auth_accounts_compatible(candidate: Option<&str>, current: Option<&str>) -> bool {
-    match (candidate, current) {
-        (Some(candidate), Some(current)) => candidate == current,
-        (Some(_), None) => true,
-        (None, Some(_)) => false,
-        (None, None) => true,
-    }
-}
-
 fn replace_with_auth_file_reference(
     interpreter_auth_path: &Path,
     codex_auth_path: &Path,
 ) -> io::Result<()> {
+    // Reference Codex auth so token refreshes stay in one mutable auth store.
     if interpreter_auth_path.exists() || interpreter_auth_path.symlink_metadata().is_ok() {
         std::fs::remove_file(interpreter_auth_path)?;
     }
@@ -242,7 +235,7 @@ fn import_config(interpreter_home: &Path, snapshot: &SystemImportSnapshot) -> io
     let codex_config = snapshot
         .codex_home
         .as_deref()
-        .filter(|codex_home| !same_path(interpreter_home, codex_home))
+        .filter(|codex_home| interpreter_home != *codex_home)
         .map(|codex_home| read_toml_table(&codex_home.join(CONFIG_TOML_FILE)))
         .transpose()?;
     let codex_auth_mode = snapshot
@@ -710,14 +703,6 @@ fn home_dir() -> Option<PathBuf> {
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
         })
-}
-
-fn same_path(left: &Path, right: &Path) -> bool {
-    path_or_self(left) == path_or_self(right)
-}
-
-fn path_or_self(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]

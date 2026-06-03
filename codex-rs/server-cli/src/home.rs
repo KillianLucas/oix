@@ -34,7 +34,12 @@ pub fn ensure_interpreter_home_env() -> io::Result<PathBuf> {
         "interpreter.home.force_provider_onboarding.false"
     });
     let canonical = resolved.canonicalize()?;
-    let auth_home = current_interpreter_auth_home(&canonical)?;
+    let auth_home = resolve_interpreter_auth_home_from_env(
+        &canonical,
+        std::env::var_os(CODEX_AUTH_HOME_ENV_VAR).as_deref(),
+        fallback_home_directory(),
+    )?;
+    // Keep interpreter state isolated while sharing Codex's mutable ChatGPT auth file.
     let canonical_auth_home = auth_home.canonicalize().unwrap_or(auth_home);
     if std::env::var_os(INTERPRETER_DISABLE_SYSTEM_IMPORT_ENV_VAR)
         .is_none_or(|value| value.is_empty())
@@ -68,14 +73,6 @@ pub fn current_interpreter_home() -> io::Result<PathBuf> {
     resolve_interpreter_home_from_env(
         std::env::var_os(INTERPRETER_HOME_ENV_VAR).as_deref(),
         std::env::var_os(OPEN_INTERPRETER_HOME_ENV_VAR).as_deref(),
-        fallback_home_directory(),
-    )
-}
-
-fn current_interpreter_auth_home(interpreter_home: &Path) -> io::Result<PathBuf> {
-    resolve_interpreter_auth_home_from_env(
-        interpreter_home,
-        std::env::var_os(CODEX_AUTH_HOME_ENV_VAR).as_deref(),
         fallback_home_directory(),
     )
 }
@@ -116,9 +113,10 @@ fn resolve_interpreter_auth_home_from_env(
         return Ok(interpreter_home.to_path_buf());
     };
     let default_codex_home = home_dir.join(DEFAULT_CODEX_HOME_DIR);
-    if same_path(interpreter_home, &default_codex_home) {
+    if interpreter_home == default_codex_home {
         return Ok(interpreter_home.to_path_buf());
     }
+    // ChatGPT refresh tokens are single-use, so the interpreter must not copy them.
     if auth_file_is_chatgpt(&default_codex_home.join(AUTH_JSON_FILE))? {
         return Ok(default_codex_home);
     }
@@ -158,14 +156,6 @@ fn auth_file_is_chatgpt(path: &Path) -> io::Result<bool> {
         .is_some_and(|value| !value.trim().is_empty());
     let auth_mode = auth.get("auth_mode").and_then(serde_json::Value::as_str);
     Ok(auth_mode == Some("chatgpt") || (auth_mode.is_none() && has_tokens && !has_api_key))
-}
-
-fn same_path(left: &Path, right: &Path) -> bool {
-    path_or_self(left) == path_or_self(right)
-}
-
-fn path_or_self(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]
