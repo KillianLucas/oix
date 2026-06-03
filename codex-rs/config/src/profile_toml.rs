@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::config_toml::ToolsToml;
+use crate::config_toml::deserialize_optional_service_tier;
 use crate::types::AnalyticsConfigToml;
 use crate::types::ApprovalsReviewer;
 use crate::types::Personality;
@@ -23,7 +24,10 @@ use codex_protocol::protocol::AskForApproval;
 #[schemars(deny_unknown_fields)]
 pub struct ConfigProfile {
     pub model: Option<String>,
-    /// Optional explicit service tier preference for new turns (`fast` or `flex`).
+    /// Optional explicit service tier preference for new turns (`default`, `priority`, or `flex`;
+    /// legacy `fast` also works).
+    #[serde(default, deserialize_with = "deserialize_optional_service_tier")]
+    #[schemars(with = "Option<String>")]
     pub service_tier: Option<ServiceTier>,
     /// The key in the `model_providers` map identifying the
     /// [`ModelProviderInfo`] to use.

@@ -383,6 +383,7 @@ fn multi_agent_v2_feature_config_deserializes_table() {
 enabled = true
 usage_hint_enabled = false
 usage_hint_text = "Custom delegation guidance."
+max_concurrent_threads_per_session = 1000000
 hide_spawn_agent_metadata = true
 "#,
     )
@@ -396,9 +397,17 @@ hide_spawn_agent_metadata = true
         features.multi_agent_v2,
         Some(crate::FeatureToml::Config(crate::MultiAgentV2ConfigToml {
             enabled: Some(true),
+            max_concurrent_threads_per_session: Some(1000000),
+            min_wait_timeout_ms: None,
+            max_wait_timeout_ms: None,
+            default_wait_timeout_ms: None,
             usage_hint_enabled: Some(false),
             usage_hint_text: Some("Custom delegation guidance.".to_string()),
+            root_agent_usage_hint_text: None,
+            subagent_usage_hint_text: None,
+            tool_namespace: None,
             hide_spawn_agent_metadata: Some(true),
+            non_code_mode_only: None,
         }))
     );
 }
@@ -427,9 +436,17 @@ usage_hint_enabled = false
         features_toml.multi_agent_v2,
         Some(crate::FeatureToml::Config(crate::MultiAgentV2ConfigToml {
             enabled: None,
+            max_concurrent_threads_per_session: None,
+            min_wait_timeout_ms: None,
+            max_wait_timeout_ms: None,
+            default_wait_timeout_ms: None,
             usage_hint_enabled: Some(false),
             usage_hint_text: None,
+            root_agent_usage_hint_text: None,
+            subagent_usage_hint_text: None,
+            tool_namespace: None,
             hide_spawn_agent_metadata: None,
+            non_code_mode_only: None,
         }))
     );
 }

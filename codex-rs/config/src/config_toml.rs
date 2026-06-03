@@ -279,7 +279,10 @@ pub struct ConfigToml {
     /// Optionally specify a personality for the model
     pub personality: Option<Personality>,
 
-    /// Optional explicit service tier preference for new turns (`fast` or `flex`).
+    /// Optional explicit service tier preference for new turns (`default`, `priority`, or `flex`;
+    /// legacy `fast` also works).
+    #[serde(default, deserialize_with = "deserialize_optional_service_tier")]
+    #[schemars(with = "Option<String>")]
     pub service_tier: Option<ServiceTier>,
 
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
@@ -872,6 +875,27 @@ pub fn validate_model_providers(
     Ok(())
 }
 
+pub(crate) fn deserialize_optional_service_tier<'de, D>(
+    deserializer: D,
+) -> Result<Option<ServiceTier>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(value) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match value.as_str() {
+        "default" => Ok(None),
+        "priority" | "fast" => Ok(Some(ServiceTier::Fast)),
+        "flex" => Ok(Some(ServiceTier::Flex)),
+        _ => Err(serde::de::Error::unknown_variant(
+            value.as_str(),
+            &["default", "priority", "fast", "flex"],
+        )),
+    }
+}
+
 fn deserialize_model_providers<'de, D>(
     deserializer: D,
 ) -> Result<HashMap<String, ModelProviderInfo>, D::Error>
@@ -887,6 +911,40 @@ where
 mod model_provider_deserialization_tests {
     use super::*;
     use codex_model_provider_info::WireApi;
+
+    #[test]
+    fn config_toml_accepts_service_tier_aliases() {
+        for (value, expected) in [
+            ("default", None),
+            ("priority", Some(ServiceTier::Fast)),
+            ("fast", Some(ServiceTier::Fast)),
+            ("flex", Some(ServiceTier::Flex)),
+        ] {
+            let config: ConfigToml = toml::from_str(&format!("service_tier = \"{value}\""))
+                .expect("service_tier should deserialize");
+
+            assert_eq!(config.service_tier, expected, "value: {value}");
+        }
+    }
+
+    #[test]
+    fn config_profile_accepts_service_tier_aliases() {
+        for (value, expected) in [
+            ("default", None),
+            ("priority", Some(ServiceTier::Fast)),
+            ("fast", Some(ServiceTier::Fast)),
+            ("flex", Some(ServiceTier::Flex)),
+        ] {
+            let config: ConfigToml =
+                toml::from_str(&format!("[profiles.aliases]\nservice_tier = \"{value}\""))
+                    .expect("profile service_tier should deserialize");
+
+            assert_eq!(
+                config.profiles["aliases"].service_tier, expected,
+                "value: {value}"
+            );
+        }
+    }
 
     #[test]
     fn config_toml_accepts_messages_wire_api_provider() {

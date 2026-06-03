@@ -7291,6 +7291,7 @@ async fn multi_agent_v2_config_from_feature_table() -> std::io::Result<()> {
         codex_home.path().join(CONFIG_TOML_FILE),
         r#"[features.multi_agent_v2]
 enabled = true
+max_concurrent_threads_per_session = 1000000
 usage_hint_enabled = false
 usage_hint_text = "Custom delegation guidance."
 hide_spawn_agent_metadata = true
@@ -7304,6 +7305,11 @@ hide_spawn_agent_metadata = true
         .await?;
 
     assert!(config.features.enabled(Feature::MultiAgentV2));
+    assert_eq!(config.agent_max_threads, Some(1000000));
+    assert_eq!(
+        config.multi_agent_v2.max_concurrent_threads_per_session,
+        Some(1000000)
+    );
     assert!(!config.multi_agent_v2.usage_hint_enabled);
     assert_eq!(
         config.multi_agent_v2.usage_hint_text.as_deref(),

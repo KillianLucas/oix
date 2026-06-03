@@ -644,6 +644,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiAgentV2Config {
+    pub max_concurrent_threads_per_session: Option<usize>,
     pub usage_hint_enabled: bool,
     pub usage_hint_text: Option<String>,
     pub hide_spawn_agent_metadata: bool,
@@ -652,6 +653,7 @@ pub struct MultiAgentV2Config {
 impl Default for MultiAgentV2Config {
     fn default() -> Self {
         Self {
+            max_concurrent_threads_per_session: None,
             usage_hint_enabled: true,
             usage_hint_text: None,
             hide_spawn_agent_metadata: false,
@@ -1532,6 +1534,10 @@ fn resolve_multi_agent_v2_config(
     let profile = multi_agent_v2_toml_config(config_profile.features.as_ref());
     let default = MultiAgentV2Config::default();
 
+    let max_concurrent_threads_per_session = profile
+        .and_then(|config| config.max_concurrent_threads_per_session)
+        .or_else(|| base.and_then(|config| config.max_concurrent_threads_per_session))
+        .or(default.max_concurrent_threads_per_session);
     let usage_hint_enabled = profile
         .and_then(|config| config.usage_hint_enabled)
         .or_else(|| base.and_then(|config| config.usage_hint_enabled))
@@ -1547,6 +1553,7 @@ fn resolve_multi_agent_v2_config(
         .unwrap_or(default.hide_spawn_agent_metadata);
 
     MultiAgentV2Config {
+        max_concurrent_threads_per_session,
         usage_hint_enabled,
         usage_hint_text,
         hide_spawn_agent_metadata,
@@ -2011,10 +2018,9 @@ impl Config {
                 "agents.max_threads cannot be set when multi_agent_v2 is enabled",
             ));
         }
-        let agent_max_threads = cfg
-            .agents
-            .as_ref()
-            .and_then(|agents| agents.max_threads)
+        let agent_max_threads = multi_agent_v2
+            .max_concurrent_threads_per_session
+            .or(agent_max_threads_from_config)
             .or(DEFAULT_AGENT_MAX_THREADS);
         if agent_max_threads == Some(0) {
             return Err(std::io::Error::new(
