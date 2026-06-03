@@ -103,16 +103,24 @@ impl SystemImportSnapshot {
 
 fn import_auth_file(interpreter_home: &Path, snapshot: &SystemImportSnapshot) -> io::Result<()> {
     let interpreter_auth_path = interpreter_home.join(AUTH_JSON_FILE);
-    if interpreter_auth_path.exists() {
-        return Ok(());
-    }
-
     if let Some(codex_home) = snapshot.codex_home.as_deref() {
         let codex_auth_path = codex_home.join(AUTH_JSON_FILE);
         if codex_auth_path.exists() && !same_path(interpreter_home, codex_home) {
-            std::fs::copy(codex_auth_path, interpreter_auth_path)?;
-            return Ok(());
+            let codex_auth = read_auth_info(&codex_auth_path)?;
+            if codex_auth.as_ref().is_some_and(|auth| auth.is_chatgpt) {
+                if should_share_codex_chatgpt_auth(&interpreter_auth_path, codex_auth.as_ref())? {
+                    replace_with_auth_file_reference(&interpreter_auth_path, &codex_auth_path)?;
+                    return Ok(());
+                }
+            } else if !interpreter_auth_path.exists() {
+                std::fs::copy(codex_auth_path, interpreter_auth_path)?;
+                return Ok(());
+            }
         }
+    }
+
+    if interpreter_auth_path.exists() {
+        return Ok(());
     }
 
     if let Some(openai_oauth) = snapshot
@@ -136,6 +144,96 @@ fn import_auth_file(interpreter_home: &Path, snapshot: &SystemImportSnapshot) ->
     }
 
     Ok(())
+}
+
+fn should_share_codex_chatgpt_auth(
+    interpreter_auth_path: &Path,
+    codex_auth: Option<&AuthInfo>,
+) -> io::Result<bool> {
+    let Some(codex_auth) = codex_auth else {
+        return Ok(false);
+    };
+    if !interpreter_auth_path.exists() {
+        return Ok(true);
+    }
+
+    let Some(interpreter_auth) = read_auth_info(interpreter_auth_path)? else {
+        return Ok(false);
+    };
+    if !codex_auth.is_chatgpt || !interpreter_auth.is_chatgpt {
+        return Ok(false);
+    }
+
+    if !auth_accounts_compatible(
+        codex_auth.account_id.as_deref(),
+        interpreter_auth.account_id.as_deref(),
+    ) {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthInfo {
+    is_chatgpt: bool,
+    account_id: Option<String>,
+}
+
+fn read_auth_info(path: &Path) -> io::Result<Option<AuthInfo>> {
+    let contents = std::fs::read_to_string(path)?;
+    let auth = match serde_json::from_str::<serde_json::Value>(&contents) {
+        Ok(auth) => auth,
+        Err(_) => return Ok(None),
+    };
+    let has_tokens = auth.get("tokens").is_some_and(serde_json::Value::is_object);
+    let has_api_key = auth
+        .get("openai_api_key")
+        .or_else(|| auth.get("OPENAI_API_KEY"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    let auth_mode = auth.get("auth_mode").and_then(serde_json::Value::as_str);
+    let is_chatgpt =
+        auth_mode == Some("chatgpt") || (auth_mode.is_none() && has_tokens && !has_api_key);
+    let account_id = auth
+        .get("tokens")
+        .and_then(|tokens| tokens.get("account_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
+    Ok(Some(AuthInfo {
+        is_chatgpt,
+        account_id,
+    }))
+}
+
+fn auth_accounts_compatible(candidate: Option<&str>, current: Option<&str>) -> bool {
+    match (candidate, current) {
+        (Some(candidate), Some(current)) => candidate == current,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => true,
+    }
+}
+
+fn replace_with_auth_file_reference(
+    interpreter_auth_path: &Path,
+    codex_auth_path: &Path,
+) -> io::Result<()> {
+    if interpreter_auth_path.exists() || interpreter_auth_path.symlink_metadata().is_ok() {
+        std::fs::remove_file(interpreter_auth_path)?;
+    }
+    create_auth_file_reference(codex_auth_path, interpreter_auth_path)
+}
+
+#[cfg(unix)]
+fn create_auth_file_reference(source: &Path, target: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(source, target).or_else(|_| std::fs::hard_link(source, target))
+}
+
+#[cfg(not(unix))]
+fn create_auth_file_reference(source: &Path, target: &Path) -> io::Result<()> {
+    std::fs::hard_link(source, target)
 }
 
 fn import_config(interpreter_home: &Path, snapshot: &SystemImportSnapshot) -> io::Result<()> {
@@ -688,7 +786,7 @@ env_key = "GROQ_API_KEY"
         .expect("write codex auth");
 
         let snapshot = SystemImportSnapshot {
-            codex_home: Some(codex_home),
+            codex_home: Some(codex_home.clone()),
             present_env_keys: HashSet::new(),
             opencode_api_auth: Vec::new(),
             opencode_oauth_auth: Vec::new(),
@@ -724,6 +822,106 @@ env_key = "GROQ_API_KEY"
                 .join(".openinterpreter")
                 .join(AUTH_JSON_FILE)
                 .exists()
+        );
+    }
+
+    #[test]
+    fn shares_interpreter_chatgpt_auth_with_default_codex_auth() {
+        let temp_home = TempDir::new().expect("temp dir");
+        let codex_home = temp_home.path().join(CODEX_HOME_DIR);
+        let interpreter_home = temp_home.path().join(".openinterpreter");
+        std::fs::create_dir_all(&codex_home).expect("create codex home");
+        std::fs::create_dir_all(&interpreter_home).expect("create interpreter home");
+        write_chatgpt_auth(
+            &codex_home.join(AUTH_JSON_FILE),
+            "fresh-access",
+            "fresh-refresh",
+            "acct_123",
+            "2026-06-02T23:27:13.808102Z",
+        );
+        write_chatgpt_auth(
+            &interpreter_home.join(AUTH_JSON_FILE),
+            "stale-access",
+            "stale-refresh",
+            "acct_123",
+            "2026-05-16T23:31:33.552323Z",
+        );
+
+        let snapshot = SystemImportSnapshot {
+            codex_home: Some(codex_home.clone()),
+            present_env_keys: HashSet::new(),
+            opencode_api_auth: Vec::new(),
+            opencode_oauth_auth: Vec::new(),
+            opencode_recent_model: None,
+        };
+        import_system_state_with_snapshot(&interpreter_home, &snapshot).expect("import codex");
+
+        write_chatgpt_auth(
+            &codex_home.join(AUTH_JSON_FILE),
+            "rotated-access",
+            "rotated-refresh",
+            "acct_123",
+            "2026-06-03T01:00:00Z",
+        );
+
+        let auth = read_auth_json(&interpreter_home.join(AUTH_JSON_FILE));
+        assert_eq!(
+            auth.get("tokens")
+                .and_then(|tokens| tokens.get("access_token"))
+                .and_then(serde_json::Value::as_str),
+            Some("rotated-access")
+        );
+        assert_eq!(
+            auth.get("tokens")
+                .and_then(|tokens| tokens.get("refresh_token"))
+                .and_then(serde_json::Value::as_str),
+            Some("rotated-refresh")
+        );
+    }
+
+    #[test]
+    fn preserves_existing_interpreter_chatgpt_auth_for_different_account() {
+        let temp_home = TempDir::new().expect("temp dir");
+        let codex_home = temp_home.path().join(CODEX_HOME_DIR);
+        let interpreter_home = temp_home.path().join(".openinterpreter");
+        std::fs::create_dir_all(&codex_home).expect("create codex home");
+        std::fs::create_dir_all(&interpreter_home).expect("create interpreter home");
+        write_chatgpt_auth(
+            &codex_home.join(AUTH_JSON_FILE),
+            "fresh-access",
+            "fresh-refresh",
+            "acct_123",
+            "2026-06-02T23:27:13.808102Z",
+        );
+        write_chatgpt_auth(
+            &interpreter_home.join(AUTH_JSON_FILE),
+            "other-access",
+            "other-refresh",
+            "acct_456",
+            "2026-05-16T23:31:33.552323Z",
+        );
+
+        let snapshot = SystemImportSnapshot {
+            codex_home: Some(codex_home),
+            present_env_keys: HashSet::new(),
+            opencode_api_auth: Vec::new(),
+            opencode_oauth_auth: Vec::new(),
+            opencode_recent_model: None,
+        };
+        import_system_state_with_snapshot(&interpreter_home, &snapshot).expect("import codex");
+
+        let auth = read_auth_json(&interpreter_home.join(AUTH_JSON_FILE));
+        assert_eq!(
+            auth.get("tokens")
+                .and_then(|tokens| tokens.get("access_token"))
+                .and_then(serde_json::Value::as_str),
+            Some("other-access")
+        );
+        assert_eq!(
+            auth.get("tokens")
+                .and_then(|tokens| tokens.get("refresh_token"))
+                .and_then(serde_json::Value::as_str),
+            Some("other-refresh")
         );
     }
 
@@ -837,5 +1035,33 @@ env_key = "GROQ_API_KEY"
                 .and_then(serde_json::Value::as_str),
             Some("acct_123")
         );
+    }
+
+    fn write_chatgpt_auth(
+        path: &Path,
+        access_token: &str,
+        refresh_token: &str,
+        account_id: &str,
+        last_refresh: &str,
+    ) {
+        let payload = serde_json::json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "account_id": account_id,
+            },
+            "last_refresh": last_refresh,
+        });
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&payload).expect("serialize auth"),
+        )
+        .expect("write auth");
+    }
+
+    fn read_auth_json(path: &Path) -> serde_json::Value {
+        let auth = std::fs::read_to_string(path).expect("read auth");
+        serde_json::from_str::<serde_json::Value>(&auth).expect("parse auth json")
     }
 }

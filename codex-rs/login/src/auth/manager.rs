@@ -1207,8 +1207,13 @@ pub struct AuthManager {
 /// `codex_core::config::Config`, but this trait keeps `codex-login` independent
 /// from `codex-core`.
 pub trait AuthManagerConfig {
-    /// Returns the Codex home directory used for auth storage.
+    /// Returns the Codex home directory used by the resolved runtime configuration.
     fn codex_home(&self) -> PathBuf;
+
+    /// Returns the Codex home directory used for auth storage.
+    fn auth_home(&self) -> PathBuf {
+        self.codex_home()
+    }
 
     /// Returns the CLI auth credential storage mode for auth loading.
     fn cli_auth_credentials_store_mode(&self) -> AuthCredentialsStoreMode;
@@ -1543,7 +1548,7 @@ impl AuthManager {
         enable_codex_api_key_env: bool,
     ) -> Arc<Self> {
         let auth_manager = Self::shared(
-            config.codex_home(),
+            config.auth_home(),
             enable_codex_api_key_env,
             config.cli_auth_credentials_store_mode(),
             Some(config.chatgpt_base_url()),

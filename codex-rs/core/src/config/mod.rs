@@ -666,6 +666,13 @@ impl AuthManagerConfig for Config {
         self.codex_home.to_path_buf()
     }
 
+    fn auth_home(&self) -> PathBuf {
+        std::env::var_os("CODEX_AUTH_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.codex_home.to_path_buf())
+    }
+
     fn cli_auth_credentials_store_mode(&self) -> AuthCredentialsStoreMode {
         self.cli_auth_credentials_store_mode
     }
