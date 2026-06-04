@@ -199,6 +199,7 @@ jobs:
             --bin interpreter-root-tui \
             --bin interpreter-tui \
             --bin interpreter-app-server \
+            --bin interpreter-acp \
             --bin interpreter-exec &
           cargo_pid="$!"
           while kill -0 "${cargo_pid}" 2>/dev/null; do
@@ -228,7 +229,7 @@ jobs:
             suffix=".exe"
           fi
 
-          for binary in interpreter interpreter-root-tui interpreter-tui interpreter-app-server interpreter-exec; do
+          for binary in interpreter interpreter-root-tui interpreter-tui interpreter-app-server interpreter-acp interpreter-exec; do
             cp "${release_dir}/${binary}${suffix}" "${package_dir}/${binary}${suffix}"
             chmod 0755 "${package_dir}/${binary}${suffix}"
           done
