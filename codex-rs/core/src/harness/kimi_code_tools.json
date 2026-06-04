@@ -1,0 +1,681 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "Agent",
+      "description": "Launch a subagent to handle a task. The subagent runs as a same-process loop instance with its own context and wire file.\n\nWriting the prompt:\n- The subagent starts with zero context — it has not seen this conversation. Brief it like a colleague who just walked into the room: state the goal, list what you already know, hand over the specifics.\n- Lookups (read this file, run that test): put the exact path or command in the prompt. The subagent should not have to search for things you already know.\n- Investigations (figure out X, find why Y): give the question, not prescribed steps — fixed steps become dead weight when the premise is wrong.\n- Do not delegate understanding. If the task hinges on a file path or line number, find it yourself first and write it into the prompt.\n\nUsage notes:\n- When the task continues earlier work a subagent already did, prefer resuming that agent (pass its `resume` id) over spawning a fresh instance — the resumed agent keeps its prior context.\n- A subagent's result is only visible to you, not to the user. When the user needs to see what a subagent produced, summarize the relevant parts yourself in your own reply.\n\nWhen NOT to use Agent: skip delegation for trivial work you can do directly — reading a file whose path you already know, searching a small known set of files, or any task that takes only a step or two. Delegation has a context-handoff cost; it pays off only when the task is substantial enough to outweigh it.\n\nOnce a subagent is running, leave that scope to it: do not redo its searches or reads in parallel, and do not abandon it midway and finish the job manually. Both undo the context savings the delegation was meant to buy.\n\nWhen `run_in_background=true`, the subagent runs detached from this turn. The completion arrives in a later turn as a synthetic user-role message containing its result — you do not need to poll, sleep, or check on its progress. Continue with other work or respond to the user. Never fabricate or predict what the result will say.\n\nFor a background task, when `timeout` is omitted it falls back to the operator-configured background timeout, if one is set. If the operator has not configured a background timeout, an omitted `timeout` means the task runs with no time limit.\n\n\nAvailable agent types (pass via subagent_type):\n- coder: Good at general software engineering tasks. Use this agent for non-trivial software engineering work that may require reading files, editing code, running commands, and returning a compact but technically complete summary to the parent agent.\n\n  Tools: Bash, Read, ReadMediaFile, Glob, Grep, Write, Edit, WebSearch, FetchURL, mcp__*\n- explore: Fast codebase exploration with prompt-enforced read-only behavior. Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (e.g. \"src/**/*.yaml\"), search code for keywords (e.g. \"database connection\"), or answer questions about the codebase (e.g. \"how does the auth module work?\"). When calling this agent, specify the desired thoroughness level: \"quick\" for basic searches, \"medium\" for moderate exploration, or \"thorough\" for comprehensive analysis across multiple locations and naming conventions. Use this agent for any read-only exploration that will clearly require more than 3 search queries. Prefer launching multiple explore agents concurrently when investigating independent questions.\n\n  Tools: Bash, Read, ReadMediaFile, Glob, Grep, WebSearch, FetchURL\n- plan: Read-only implementation planning and architecture design. Use this agent when the parent agent needs a step-by-step implementation plan, key file identification, and architectural trade-off analysis before code changes are made.\n\n  Tools: Read, ReadMediaFile, Glob, Grep, WebSearch, FetchURL",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Full task prompt for the subagent"
+          },
+          "description": {
+            "type": "string",
+            "description": "Short task description (3-5 words) for UI display"
+          },
+          "subagent_type": {
+            "description": "One of the available agent types (see \"Available agent types\" in this tool description). Defaults to \"coder\" when omitted.",
+            "type": "string"
+          },
+          "resume": {
+            "description": "Optional agent ID to resume instead of creating a new instance",
+            "type": "string"
+          },
+          "run_in_background": {
+            "description": "If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting.",
+            "type": "boolean"
+          },
+          "timeout": {
+            "description": "Timeout in seconds for the agent task (min 30s, max 3600s / 1hr). When omitted, a foreground task runs until completion with no timeout. The agent is stopped if it exceeds this limit.",
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "prompt",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "AskUserQuestion",
+      "description": "Use this tool when you need to ask the user questions with structured options during execution. This allows you to:\n1. Collect user preferences or requirements before proceeding\n2. Resolve ambiguous or underspecified instructions\n3. Let the user decide between implementation approaches as you work\n4. Present concrete options when multiple valid directions exist\n\n**When NOT to use:**\n- When you can infer the answer from context — be decisive and proceed\n- Trivial decisions that don't materially affect the outcome\n\nOverusing this tool interrupts the user's flow. Only use it when the user's input genuinely changes your next action.\n\n**Usage notes:**\n- Users always have an \"Other\" option for custom input — don't create one yourself\n- Use multi_select to allow multiple answers to be selected for a question\n- Keep option labels concise (1-5 words), use descriptions for trade-offs and details\n- Each question should have 2-4 meaningful, distinct options\n- You can ask 1-4 questions at a time; group related questions to minimize interruptions\n- If you recommend a specific option, list it first and append \"(Recommended)\" to its label",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "questions": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "A specific, actionable question. End with '?'."
+                },
+                "header": {
+                  "default": "",
+                  "description": "Short category tag (max 12 chars, e.g. 'Auth', 'Style').",
+                  "type": "string"
+                },
+                "options": {
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Concise display text (1-5 words). If recommended, append '(Recommended)'."
+                      },
+                      "description": {
+                        "default": "",
+                        "description": "Brief explanation of trade-offs or implications.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2-4 meaningful, distinct options. Do NOT include an 'Other' option — the system adds one automatically."
+                },
+                "multi_select": {
+                  "default": false,
+                  "description": "Whether the user can select multiple options.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "question",
+                "options"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The questions to ask the user (1-4 questions)."
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Bash",
+      "description": "Execute a `bash` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.\n\n**Translate these to a dedicated tool instead:**\n- `cat` / `head` / `tail` (known path) → `Read`\n- `sed` / `awk` (in-place edit) → `Edit`\n- `echo > file` / `cat <<EOF` → `Write`\n- `find` / recursive `ls` to locate files by name pattern → `Glob` (plain `ls <known-directory>` is fine for listing a directory)\n- `grep` / `rg` (search file contents) → `Grep`\n- `echo` / `printf` (talk to the user) → just output text directly\n\nThe dedicated tools render in the per-tool permission UI and keep raw stdout out of the conversation; that is why they are worth reaching for whenever one fits.\n\n**Output:**\nThe stdout and stderr will be combined and returned as a string. The output may be truncated if it is too long. If the command failed, the output will end with a `Command failed with exit code: N` line stating the non-zero exit code.\n\nIf `run_in_background=true`, the command will be started as a background task and this tool will return a task ID instead of waiting for command completion. When doing that, you must provide a short `description`. Background commands default to a 600s timeout and `timeout` is capped at 86400s; set `disable_timeout=true` only when the task should run without a timeout. You will be automatically notified when the task completes. Use `TaskOutput` for a non-blocking status/output snapshot, and only set `block=true` when you explicitly want to wait for completion. Use `TaskStop` only if the task must be cancelled. If a human user wants to inspect background tasks themselves, point them to the `/tasks` command, which opens an interactive panel; it has no subcommands.\n\n**Guidelines for safety and security:**\n- Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls.\n- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running foreground commands, set the `timeout` argument in seconds. Foreground commands default to 60s and allow up to 300s.\n- Avoid using `..` to access files or directories outside of the working directory.\n- Avoid modifying files outside of the working directory unless explicitly instructed to do so.\n- Never run commands that require superuser privileges unless explicitly instructed to do so.\n\n**Guidelines for efficiency:**\n- For multiple related commands, use `&&` to chain them in a single call, e.g. `cd /path && ls -la`\n- Use `;` to run commands sequentially regardless of success/failure\n- Use `||` for conditional execution (run second command only if first fails)\n- Use pipe operations (`|`) and redirections (`>`, `>>`) to chain input and output between commands\n- Always quote file paths containing spaces with double quotes (e.g., cd \"/path with spaces/\")\n- Compose multi-step logic in a single call with `if` / `case` / `for` / `while` control flows.\n- Prefer `run_in_background=true` for long-running builds, tests, watchers, or servers when you need the conversation to continue before the command finishes.\n\n**Commands available:**\nThe following common command categories are usually available. Availability still depends on the host, so when in doubt run `which <command>` first to confirm a command exists before relying on it.\n- Navigation and inspection: `ls`, `pwd`, `cd`, `stat`, `file`, `du`, `df`, `tree`\n- File and directory management: `cp`, `mv`, `rm`, `mkdir`, `touch`, `ln`, `chmod`, `chown`\n- Text and data processing: `wc`, `sort`, `uniq`, `cut`, `tr`, `diff`, `xargs`\n- Archives and compression: `tar`, `gzip`, `gunzip`, `zip`, `unzip`\n- Networking and transfer: `curl`, `wget`, `ping`, `ssh`, `scp`\n- Version control: `git`\n- Process and system: `ps`, `kill`, `top`, `env`, `date`, `uname`, `whoami`\n- Language and package toolchains: `node`, `npm`, `pnpm`, `yarn`, `python`, `pip` (use whichever the project actually relies on)\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The command to execute."
+          },
+          "cwd": {
+            "description": "The working directory in which to run the command. When omitted, the command runs in the session's working directory.",
+            "type": "string"
+          },
+          "timeout": {
+            "default": 60,
+            "description": "Optional timeout in seconds for the command to execute. Foreground default 60s, max 300s. Background default 600s, max 86400s. Ignored for background commands when disable_timeout=true.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "description": {
+            "description": "A short description for the background task. Required when run_in_background is true.",
+            "type": "string"
+          },
+          "run_in_background": {
+            "description": "Whether to run the command as a background task.",
+            "type": "boolean"
+          },
+          "disable_timeout": {
+            "description": "If true, do not apply a timeout to the command. Only applies when run_in_background is true.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "CronCreate",
+      "description": "Schedule a prompt to be enqueued at a future time. Use for both recurring schedules and one-shot reminders.\n\nUses standard 5-field cron in the user's local timezone: minute hour day-of-month month day-of-week. `0 9 * * *` means 9am local — no timezone conversion needed.\n\n## One-shot tasks (recurring: false)\n\nFor \"remind me at X\" or \"at <time>, do Y\" requests — fire once then auto-delete.\nPin minute/hour/day-of-month/month to specific values:\n  \"remind me at 2:30pm today to check the deploy\" → cron: \"30 14 <today_dom> <today_month> *\", recurring: false\n  \"tomorrow morning, run the smoke test\" → cron: \"57 8 <tomorrow_dom> <tomorrow_month> *\", recurring: false\n\n## Recurring jobs (recurring: true, the default)\n\nFor \"every N minutes\" / \"every hour\" / \"weekdays at 9am\" requests:\n  \"*/5 * * * *\" (every 5 min), \"0 * * * *\" (hourly), \"0 9 * * 1-5\" (weekdays at 9am local)\n\n## Avoid the :00 and :30 minute marks when the task allows it\n\nEvery user who asks for \"9am\" gets `0 9`, and every user who asks for \"hourly\" gets `0 *` — which means requests from across the planet land on the API at the same instant. When the user's request is approximate, pick a minute that is NOT 0 or 30:\n  \"every morning around 9\" → \"57 8 * * *\" or \"3 9 * * *\" (not \"0 9 * * *\")\n  \"hourly\" → \"7 * * * *\" (not \"0 * * * *\")\n  \"in an hour or so, remind me to...\" → pick whatever minute you land on, don't round\n\nOnly use minute 0 or 30 when the user names that exact time and clearly means it (\"at 9:00 sharp\", \"at half past\", coordinating with a meeting). When in doubt, nudge a few minutes early or late — the user will not notice, and the fleet will.\n\n## Coalesce semantics\n\nIf the scheduler slept past multiple ideal fire times (laptop closed, long-running turn, etc.), only **one** fire is delivered when it wakes up. The origin carries `coalescedCount` showing how many ideal fires were collapsed into this single delivery. You should treat `coalescedCount > 1` as \"I missed some checks; only the latest state matters\" rather than running the prompt that many times.\n\n## Cron-fire envelope\n\nWhen a cron task fires, the prompt you scheduled is re-injected wrapped in an XML envelope that exposes the fire context:\n\n```\n<cron-fire jobId=\"...\" cron=\"...\" recurring=\"true|false\" coalescedCount=\"N\" stale=\"true|false\">\n<prompt>\nyour original prompt text, verbatim\n</prompt>\n</cron-fire>\n```\n\nThe envelope is parseable. Use `coalescedCount > 1` to know multiple ideal fires were collapsed into a single delivery (treat as \"only the latest state matters\"), and `stale=\"true\"` as a cue that the task is past its 7-day threshold.\n\n## 7-day stale behavior\n\nRecurring tasks that have been alive for more than 7 days fire one\nfinal time with `stale: true` on the envelope, and the system then\nauto-deletes the task. The flag is the model's notice that this is\nthe last delivery. If the schedule is still wanted, call `CronCreate`\nagain with the same `cron` and `prompt` — that resets `createdAt` and\nstarts a fresh 7-day window. One-shot tasks are never marked stale.\n\nBench / acceptance runs can set `KIMI_CRON_NO_STALE=1` to disable the\njudgment entirely.\n\n## Jitter behavior\n\nAnti-herd jitter is applied deterministically per task id:\n  - Recurring: ideal fire time is shifted **forward** by an offset ≤ min(10% of the cron period, 15 minutes). A `*/5 * * * *` task can drift up to 30s; a `0 9 * * *` task can drift up to 15 minutes.\n  - One-shot: only when the ideal fire lands on `:00` or `:30` of the hour, the fire is pulled **earlier** by ≤ 90 seconds. Other minutes pass through unchanged.\n\nBench / acceptance tests can set `KIMI_CRON_NO_JITTER=1` to disable jitter entirely.\n\n## One-shot vs recurring — when to pick which\n\nUse `recurring: false` for \"remind me at X\" style requests, single deadlines, \"in N minutes do Y\", and any task that should not repeat. Use `recurring: true` for periodic polling (CI status, build watchers, scheduled reports), workday rituals, and anything the user explicitly described as recurring.\n\n## Session lifetime\n\nCron tasks live in the current kimi CLI session. When you exit, they\nare persisted under the session homedir; the next `kimi resume` of the\nsame session reloads them and the scheduler resumes from each task's\n`createdAt`. Fire times that fell during the offline window are\ncollapsed into a single delivery via `coalescedCount` (and recurring\ntasks past their 7-day window arrive with `stale: true` as their final\ndelivery).\n\nTasks do **not** carry over into a brand-new session — they are scoped\nto the resumed session id, not to the working directory.\n\n## Returned fields\n\n`id` (8-hex), `humanSchedule` (English summary), `recurring`,\n`nextFireAt` (ISO timestamp or null). `id` is needed by `CronDelete`.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "cron": {
+            "type": "string",
+            "description": "5-field cron expression in local time: \"M H DoM Mon DoW\" (e.g. \"*/5 * * * *\" = every 5 minutes, \"30 14 28 2 *\" = Feb 28 at 2:30pm local once)."
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "The prompt to enqueue at each fire time."
+          },
+          "recurring": {
+            "default": true,
+            "description": "true (default) = fire on every cron match until deleted or auto-expired after 7 days. false = fire once at the next match, then auto-delete. Use false for \"remind me at X\" one-shot requests with pinned minute/hour/dom/month.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cron",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "CronDelete",
+      "description": "Cancel a scheduled cron job by id.\n\nUse this tool to remove a cron task previously scheduled with\n`CronCreate`. The `id` is the 8-hex value returned by `CronCreate`, or\nshown in the `id:` column of `CronList` — quote it verbatim, no\nprefix.\n\nBehaviour by task kind:\n\n- **Recurring task** (`recurring: true`): stops all future fires\n  immediately. The scheduler picks up the deletion on its next tick.\n- **One-shot task** (`recurring: false`): cancels the pending fire if\n  it has not happened yet. One-shots that have already fired\n  auto-delete themselves, so calling `CronDelete` on a fired one-shot\n  returns \"no cron job with id ...\".\n\nNot-found is reported as an error (not a silent no-op) so you can\ncorrect yourself — typically by calling `CronList` to see which ids\nare actually live, rather than re-trying with the same stale id.\n\nRefresh pattern (use when you want a stale recurring schedule to\ncontinue):\n\nStale recurring tasks are auto-deleted by the system after their final\nfire — there is nothing for `CronDelete` to remove at that point. To\nkeep the schedule running, just call `CronCreate` with the same `cron`\nand `prompt`. Use `CronList`'s `prompt` field to recall the original\ntext after a context compaction.\n\n`CronDelete` remains the right call when you want to cancel a task\nthat is still live (recurring not yet stale, or a one-shot still\npending).\n\nGuidelines:\n\n- Cron deletion is irreversible — there is no undo. If you delete the\n  wrong task, you must re-create it with `CronCreate`.\n- If the model is unsure which id is current (e.g. after a context\n  compaction), call `CronList` first rather than guessing.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The 8-hex cron job id returned by CronCreate / CronList."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "CronList",
+      "description": "List all cron jobs currently scheduled in this session.\n\nUse this tool to see every pending cron task — both recurring jobs and\none-shot reminders — that you (or the user) have scheduled with\n`CronCreate`. The output is the entry point for inspecting scheduled\nwork: it returns a stable id, the original cron expression, a human\nrendering, the next post-jitter fire time, the recurring flag, the\ntask's age in days, and a stale indicator.\n\nEach record carries:\n\n- `id` — the 8-hex task id. Pass this to `CronDelete` to remove the\n  task, or quote it in user-facing messages when asking for\n  confirmation.\n- `cron` — the verbatim 5-field cron expression as scheduled.\n- `humanSchedule` — plain-English rendering (e.g. `every 5 minutes`).\n- `prompt` — the scheduled prompt text, JSON-encoded so embedded\n  newlines stay on one line. Truncated to 200 UTF-8 bytes with\n  `…(truncated)` if longer. Use this to recall what a task is for\n  after a context compaction, and as the source for the\n  `CronCreate` refresh ritual.\n- `nextFireAt` — ISO timestamp of the next fire **after jitter has\n  been applied**. The actual fire may land slightly before or after a\n  round `:00` / `:30` minute mark due to herd-avoidance jitter; this\n  is the value the scheduler will compare against, so it reflects\n  what will really happen. `null` if the expression has no fire in\n  the next 5 years (should not happen for tasks created through\n  `CronCreate`, which validates).\n- `recurring` — `true` for cadenced jobs, `false` for one-shots.\n- `ageDays` — `(now - createdAt) / day`, two decimal places. Useful\n  when deciding whether a long-running cron is still relevant.\n- `stale` — `true` when a recurring task is older than 7 days. The\n  system **auto-deletes the task after this fire** to bound session\n  lifetime; the `stale: true` flag is the model's notice that this is\n  the final delivery. To resume the same schedule, call `CronCreate`\n  again with the original `cron` and `prompt` (the `prompt` row above\n  carries it for exactly this purpose). One-shots are never marked\n  stale — they fire at most once by construction.\n  `KIMI_CRON_NO_STALE=1` disables the judgment entirely (bench /\n  acceptance runs).\n\nGuidelines:\n\n- This tool is read-only and never mutates state, so it is always\n  safe to call (including in plan mode).\n- The empty case returns `cron_jobs: 0\\nNo cron jobs scheduled.`. Cron\n  tasks survive a `kimi resume` of the same session but do not bleed\n  into new sessions.\n- After a context compaction, or whenever you are unsure which cron\n  jobs are live, call this tool to re-enumerate them rather than\n  guessing ids from earlier in the conversation.\n- Records are separated by a line containing just `---`, in the\n  insertion order they were scheduled.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Edit",
+      "description": "Perform exact string replacements against the text view returned by Read.\n\n- When copying from Read output, omit the line-number prefix and tab; match only the file content.\n- By default, old_string must occur exactly once. If it matches multiple locations, add surrounding context or set replace_all when every occurrence should change.\n- Prefer Edit for targeted changes to existing files; use Write only for new files or complete overwrites.\n- To modify a file, always use Edit; do not run a Shell `sed` command for edits.\n- When making several independent changes, issue multiple Edit calls in parallel within a single response; edits to the same file are serialized automatically by a write lock.\n- When several parallel Edit calls target the same file, a write lock serializes them; they apply in the order the calls appear in your response. An edit fails with `old_string not found` if its old_string was taken from text an earlier edit already replaced — base every old_string on the latest Read view and order dependent edits accordingly.\n- For pure CRLF files, Read shows LF and Edit.old_string/new_string should use LF; Edit writes the file back with CRLF preserved.\n- For mixed line endings or lone carriage returns, Read displays carriage returns as \\r; include actual \\r escapes in old_string/new_string for those positions.",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the text file to edit. Relative paths resolve against the working directory; a path outside the working directory must be absolute."
+          },
+          "old_string": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact content to replace from the Read output view, without the line-number prefix. Use LF for pure CRLF files; use actual \\r escapes where Read shows \\r."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Replacement text in the same Read output view. LF is written back as CRLF only for pure CRLF files."
+          },
+          "replace_all": {
+            "description": "Set true only when every occurrence of old_string should be replaced.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "EnterPlanMode",
+      "description": "Use this tool proactively when you're about to start a non-trivial implementation task.\nGetting user sign-off on your approach via ExitPlanMode before writing code prevents wasted effort.\n\nUse it when ANY of these conditions apply:\n\n1. New Feature Implementation - e.g. \"Add a caching layer to the API\"\n2. Multiple Valid Approaches - e.g. \"Optimize database queries\" (indexing vs rewrite vs caching)\n3. Code Modifications - e.g. \"Refactor auth module to support OAuth\"\n4. Architectural Decisions - e.g. \"Add WebSocket support\"\n5. Multi-File Changes - involves more than 2-3 files\n6. Unclear Requirements - need exploration to understand scope\n7. User Preferences Matter - if user input would materially change the implementation approach, use EnterPlanMode to structure the decision\n\nPermission mode notes:\n- EnterPlanMode enters plan mode automatically without an approval prompt in all permission modes.\n- In yolo and manual modes, ExitPlanMode still presents the plan to the user for approval.\n- In auto permission mode, do not use AskUserQuestion; make the best decision from available context.\n- In auto permission mode, ExitPlanMode exits plan mode without asking the user.\n- Use EnterPlanMode only when planning itself adds value.\n\nWhen NOT to use:\n- Single-line or few-line fixes (typos, obvious bugs, small tweaks)\n- User gave very specific, detailed instructions\n- Pure research/exploration tasks\n\n## What Happens in Plan Mode\nIn plan mode, you will:\n1. Identify 2-3 key questions about the codebase that are critical to your plan. If you are not confident about the codebase structure or relevant code paths, use `Agent(subagent_type=\"explore\")` to investigate these questions first - this is strongly recommended for non-trivial tasks.\n2. Explore the codebase using Glob, Grep, Read, and other read-only tools for any remaining quick lookups. Use Bash only when needed; Bash follows the normal permission mode and rules.\n3. Design an implementation approach based on your findings\n4. Write your plan to the current plan file with Write or Edit\n5. Present your plan to the user via ExitPlanMode for approval\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ExitPlanMode",
+      "description": "Use this tool when you are in plan mode and have finished writing your plan to the plan file and are ready for user approval.\n\n## How This Tool Works\n- You should have already written your plan to the plan file specified in the plan mode reminder.\n- This tool does NOT take the plan content as a parameter - it reads the plan from the file you wrote.\n- The user will see the contents of your plan file when they review it. In auto permission mode, the tool reads the file and exits plan mode without asking the user.\n\n## When to Use\nOnly use this tool for tasks that require planning implementation steps. For research tasks (searching files, reading code, understanding the codebase), do NOT use this tool.\n\n## Multiple Approaches\nIf your plan contains multiple alternative approaches:\n- Pass them via the `options` parameter so the user can choose which approach to execute.\n- Each option should have a concise label and a brief description of trade-offs.\n- If you recommend one option, append \"(Recommended)\" to its label.\n- In yolo and manual modes, the user will see all options alongside Reject and Revise choices.\n- Provide up to 3 options; the host adds the standard rejection and revision controls. When the plan offers a real choice, 2-3 distinct approaches work best.\n- Passing a single option is allowed and is equivalent to a plain plan approval (no approach choice is surfaced to the user).\n- Do NOT use \"Reject\", \"Reject and Exit\", \"Revise\", or \"Approve\" as option labels - these are reserved by the system.\n\n## Before Using\n- In auto permission mode, do NOT use AskUserQuestion; make the best decision from available context.\n- In auto permission mode, this tool exits plan mode without asking the user.\n- In yolo and manual modes, this tool still presents the plan to the user for approval.\n- If auto permission mode is not active and you have unresolved questions, use AskUserQuestion first.\n- If auto permission mode is not active and you have multiple approaches and haven't narrowed down yet, consider using AskUserQuestion first to let the user choose, then write a plan for the chosen approach only.\n- Once your plan is finalized, use THIS tool to request approval.\n- Do NOT use AskUserQuestion to ask \"Is this plan OK?\" or \"Should I proceed?\" - that is exactly what ExitPlanMode does.\n- If rejected, revise based on feedback and call ExitPlanMode again.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "options": {
+            "description": "When the plan contains multiple alternative approaches, list them here so the user can choose which one to execute. Provide up to 3 options; 2-3 distinct approaches work best when the plan offers a real choice. Passing a single option is allowed and is equivalent to a plain plan approval. Each option represents a distinct approach from the plan. Do not use \"Reject\", \"Revise\", \"Approve\", or \"Reject and Exit\" as labels.",
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "Short name for this option (1-8 words). Append \"(Recommended)\" if you recommend this option."
+                },
+                "description": {
+                  "default": "",
+                  "description": "Brief summary of this approach and its trade-offs.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "FetchURL",
+      "description": "Fetch content from a URL. Returns the main text content extracted from the page. Use this when you need to read a specific web page.\n\nOnly public `http`/`https` URLs are supported. Requests to private, loopback, or link-local addresses are refused, and responses larger than 10 MiB are rejected.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to fetch content from."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Glob",
+      "description": "Find files (and optionally directories) by glob pattern, sorted by modification time (most recent first).\n\nGood patterns:\n- `*.ts` — files in the current directory matching an extension\n- `src/**/*.ts` — recursive with a subdirectory anchor and extension\n- `test_*.py` — files whose name starts with a literal prefix\n\nRejected patterns (no literal anchor — nothing bounds the result set):\n- `**`, `**/*`, `*/*` — pure wildcards. Add an extension or subdirectory to give the walk a concrete target.\n- Anything that starts with `**/` (e.g. `**/*.md`, `**/main/*.py`). The leading `**/` has no literal anchor in front of it. Anchor it with a top-level subdirectory like `src/**/*.md`.\n- `*.{ts,tsx}` — brace expansion is not supported. Issue two calls: `*.ts` and `*.tsx`.\n\nLarge-directory warning — avoid recursing into dependency/build output even with an anchor:\n- `node_modules/**/*.js`, `.venv/**/*.py`, `__pycache__/**`, `target/**` all match technically but\n  typically produce thousands of results that truncate at the match cap and waste the caller context.\n  Prefer specific subpaths like `node_modules/react/src/**/*.js`.",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match files/directories."
+          },
+          "path": {
+            "description": "Absolute path to the directory to search in. Defaults to the current working directory.",
+            "type": "string"
+          },
+          "include_dirs": {
+            "description": "Whether to include directories in results. Defaults to true. Set false to return only files.",
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Grep",
+      "description": "Search file contents using regular expressions (powered by ripgrep).\n\nUse Grep when the task is to find unknown content or unknown file locations. Do not use shell `grep` or `rg` directly; this tool applies workspace path policy, output limits, and sensitive-file filtering.\nALWAYS use Grep tool instead of running `grep` or `rg` from a shell — direct shell calls bypass workspace policy, output limits, and sensitive-file filtering.\nIf you already know a concrete file path and need to inspect its contents, use Read directly instead.\n\nWrite patterns in ripgrep regex syntax, which differs from POSIX `grep` syntax. For example, braces are special, so escape them as `\\{` to match a literal `{`.\n\nHidden files (dotfiles such as `.gitlab-ci.yml` or `.eslintrc.json`) are searched by default. To also search files excluded by `.gitignore` (such as `node_modules` or build outputs), set `include_ignored` to `true`. Sensitive files (such as `.env`) are always skipped for safety, even when `include_ignored` is `true`.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regular expression to search for."
+          },
+          "path": {
+            "description": "File or directory to search. Accepts an absolute path, or a path relative to the current working directory. Omit to search the current working directory. Use Read instead when you already know a concrete file path and need its contents.",
+            "type": "string"
+          },
+          "glob": {
+            "description": "Optional glob filter passed to ripgrep.",
+            "type": "string"
+          },
+          "type": {
+            "description": "Optional ripgrep file type filter, such as ts or py. Prefer this over `glob` when filtering by language or file kind: it is more efficient and less error-prone than an equivalent glob pattern.",
+            "type": "string"
+          },
+          "output_mode": {
+            "description": "Shape of the result. `content` shows matching lines (honors `-A`, `-B`, `-C`, `-n`, and `head_limit`); `files_with_matches` shows only the paths of files that contain a match (honors `head_limit`); `count_matches` shows the total number of matches. Defaults to `files_with_matches`.",
+            "type": "string",
+            "enum": [
+              "content",
+              "files_with_matches",
+              "count_matches"
+            ]
+          },
+          "-i": {
+            "description": "Perform a case-insensitive search. Defaults to false.",
+            "type": "boolean"
+          },
+          "-n": {
+            "description": "Prefix each matching line with its line number. Applies only when `output_mode` is `content`. Defaults to true.",
+            "type": "boolean"
+          },
+          "-A": {
+            "description": "Number of lines to show after each match. Applies only when `output_mode` is `content`.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "-B": {
+            "description": "Number of lines to show before each match. Applies only when `output_mode` is `content`.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "-C": {
+            "description": "Number of lines to show before and after each match. Applies only when `output_mode` is `content`; takes precedence over `-A` and `-B`.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "head_limit": {
+            "description": "Limit output to the first N lines/entries after offset. Defaults to 250. Pass 0 for unlimited.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "offset": {
+            "description": "Number of leading lines/entries to skip before applying `head_limit`. Use it together with `head_limit` to page through large result sets. Defaults to 0.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "multiline": {
+            "description": "Enable multiline matching, where the pattern can span line boundaries and `.` also matches newlines. Defaults to false.",
+            "type": "boolean"
+          },
+          "include_ignored": {
+            "description": "Also search files excluded by ignore files such as `.gitignore`, `.ignore`, and `.rgignore` (for example `node_modules` or build outputs). Sensitive files (such as `.env`) remain filtered out for safety. Defaults to false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Read",
+      "description": "Read a text file from the local filesystem.\n\nIf the user provides a concrete file path to a text file, call Read directly. Do not `Glob`, `ls`, or otherwise pre-check known text file paths; missing or invalid file paths return errors you can handle. Do not use Read for directories; use `ls` via Bash for a known directory, or Glob when you need files/directories matching a pattern. Use `Grep` only when the task is to search for unknown content or locations.\n\nWhen you need several files, prefer to read them in parallel: emit multiple `Read` calls in a single response instead of reading one file per turn.\n\n- Relative paths resolve against the working directory; a path outside the working directory must be absolute.\n- Returns up to 1000 lines or 100 KB per call, whichever comes first; lines longer than 2000 chars are truncated mid-line.\n- Page larger files with `line_offset` (1-based start line) and `n_lines`. Omit `n_lines` to read up to the 1000-line cap.\n- Sensitive files (`.env` files, credential stores, SSH keys, and similar secrets) are refused to protect secrets; do not attempt to read them.\n- Only UTF-8 text files can be read. Non-UTF-8 encodings, binary files, and files containing NUL bytes are refused; use `ReadMediaFile` for images or video, and Bash or an MCP tool for other binary formats.\n- Negative line_offset reads from the end of the file (for example, -100 reads the last 100 lines); the absolute value cannot exceed 1000.\n- Output format: `<line-number>\\t<content>` per line.\n- A `<system>...</system>` status block is appended after the file content; it summarizes how much was read (line and byte counts, truncation, line-ending notes) and is not part of the file itself.\n- Pure CRLF files are displayed with LF line endings; `Edit` matches this output and preserves CRLF when writing back.\n- Mixed or lone carriage-return line endings are shown as `\\r` and require exact `Edit.old_string` escapes.\n- After a successful `Edit`/`Write`, do not re-read solely to prove the write landed. When the task depends on an exact file, API, or output shape, inspect the final external contract before finishing.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to a text file. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Directories are not supported; use `ls` via Bash for a known directory, or Glob for pattern search."
+          },
+          "line_offset": {
+            "description": "The line number to start reading from. Omit to start at line 1. Negative values read from the end of the file; the absolute value cannot exceed 1000.",
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -1000,
+                "maximum": -1
+              }
+            ]
+          },
+          "n_lines": {
+            "description": "The number of lines to read; the tool also applies its internal cap. Omit to read up to the internal cap of 1000 lines.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ReadMediaFile",
+      "description": "Read media content from a file.\n\n**Tips:**\n- Make sure you follow the description of each tool parameter.\n- A `<system>` tag is given before the file content; it summarizes the mime type, byte size and, for images, the original pixel dimensions. When outputting coordinates, give relative coordinates first and compute absolute coordinates from the original image size. After generating or editing media via commands or scripts, read the result back before continuing.\n- The system will notify you when there is anything wrong when reading the file.\n- This tool is a tool that you typically want to use in parallel. Always read multiple files in one response when possible.\n- This tool can only read image or video files. To read text files, use the Read tool. To list directories, use `ls` via Bash for a known directory, or Glob for pattern search.\n- If the file doesn't exist or path is invalid, an error will be returned.\n- The maximum size that can be read is 100MB. An error will be returned if the file is larger than this limit.\n- The media content will be returned in a form that you can directly view and understand.\n\n**Capabilities**\n- This tool supports image and video files for the current model.",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to an image or video file. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Directories and text files are not supported."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "TaskList",
+      "description": "List background tasks and their current status.\n\nUse this tool to discover which background tasks exist and where each one\nstands. It is the entry point for inspecting background work: it returns a\ntask ID, status, command, description, and PID for every task it reports,\nplus the exit code and stop reason for tasks that have already finished.\n\nGuidelines:\n\n- After a context compaction, or whenever you are unsure which background\n  tasks are running or what their task IDs are, call this tool to\n  re-enumerate them instead of guessing a task ID.\n- Prefer the default `active_only=true`, which lists only non-terminal tasks.\n  Pass `active_only=false` only when you specifically need to see tasks that\n  have already finished. With `active_only=false` the result may also include\n  `lost` tasks — tasks left over from a previous process that can no longer be\n  inspected or controlled; treat them as already terminated.\n- `limit` caps how many tasks are returned. It accepts a value between 1 and\n  100 and defaults to 20 when omitted.\n- This tool only lists tasks; it does not return their output. Use it first\n  to locate the task ID you need, then call `TaskOutput` with that ID to read\n  the task's output and details.\n- This tool is read-only and does not change any state, so it is always safe\n  to call, including in plan mode.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "active_only": {
+            "default": true,
+            "description": "Whether to list only non-terminal background tasks.",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Maximum number of tasks to return.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "TaskOutput",
+      "description": "Retrieve output from a running or completed background task.\n\nUse this after `Bash(run_in_background=true)` when you need to inspect progress or explicitly wait for completion.\n\nGuidelines:\n- Prefer relying on automatic completion notifications. Use this tool only when you need task output before the automatic notification arrives.\n- By default this tool is non-blocking and returns a current status/output snapshot.\n- Use block=true only when you intentionally want to wait for completion or timeout.\n- This tool returns structured task metadata, a fixed-size output preview, and an output_path for the full log.\n- For a terminal task, the metadata also explains why it ended: `timed_out` when an agent task was aborted by its deadline, and `stop_reason` when the task was explicitly stopped. `terminal_reason` is a categorical label for the same event — its value is `timed_out` or `stopped` — and is emitted alongside the matching `timed_out` / `stop_reason` field. A task that ended on its own emits none of these three fields.\n- The full, never-truncated log is always available at output_path; use the `Read` tool with that path to page through it, whether or not the preview was truncated.\n- This tool works with the generic background task system and should remain the primary read path for future task types, not just bash.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The background task ID to inspect."
+          },
+          "block": {
+            "default": false,
+            "description": "Whether to wait for the task to finish before returning.",
+            "type": "boolean"
+          },
+          "timeout": {
+            "default": 30,
+            "description": "Maximum number of seconds to wait when block=true.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "TaskStop",
+      "description": "Stop a running background task.\n\nOnly use this when a task must genuinely be cancelled — for a task that is\nfinishing normally, wait for its completion notification or inspect it with\n`TaskOutput` instead of stopping it.\n\nGuidelines:\n- This is a general-purpose stop capability for any background task. It is not\n  a bash-specific kill.\n- Stopping a task is destructive: it may leave partial side effects behind.\n  Use it with care.\n- If the task has already finished, this tool simply returns its current\n  status.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The background task ID to stop."
+          },
+          "reason": {
+            "default": "Stopped by TaskStop",
+            "description": "Short reason recorded when the task is stopped.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "TodoList",
+      "description": "Use this tool to maintain a structured TODO list as you work through a multi-step task. This is especially useful in plan mode and for long-running investigations.\n\n**When to use:**\n- Multi-step tasks that span several tool calls\n- Tracking investigation progress across a large codebase search\n- Planning a sequence of edits before making them\n\n**When NOT to use:**\n- Single-shot answers that complete in one or two tool calls\n- Trivial requests where tracking adds no clarity\n\n**Avoid churn:**\n- Do not re-call this tool when nothing meaningful has changed since the last call — update the list only after real progress.\n- When unsure of the current state, call query mode first (omit `todos`) to check the list before deciding what to update.\n- If no available tool can move any task forward, tell the user where you are stuck instead of repeatedly re-ordering the same todos.\n\n**How to use:**\n- Call with `todos: [...]` to replace the full list. Statuses: pending / in_progress / done.\n- Call with no arguments to retrieve the current list without changing it.\n- Call with `todos: []` to clear the list.\n- Keep titles short and actionable (e.g. \"Read session-control.ts\", \"Add planMode flag to TurnManager\").\n- Update statuses as you make progress — mark one item in_progress at a time.",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "todos": {
+            "description": "The updated todo list. Omit to read the current todo list without making changes. Pass an empty array to clear the list.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Short, actionable title for the todo."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "done"
+                  ],
+                  "description": "Current status of the todo."
+                }
+              },
+              "required": [
+                "title",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Write",
+      "description": "Overwrite or append to a file with content exactly as provided, creating the file if needed; the parent directory must already exist. Defaults to overwrite; append adds content to the end without adding a newline. Write does not use the Read/Edit model text view and does not preserve or infer the previous line-ending style: \\n stays LF, \\r\\n stays CRLF. Use Edit for targeted changes to existing files. When the content is very large, you can split it across multiple calls: write the first chunk with overwrite, then add the remaining chunks with append.\n",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to create, append to, or completely overwrite. Relative paths resolve against the working directory; a path outside the working directory must be absolute. The parent directory must already exist."
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw full file content to write exactly as provided. This does not use the Read/Edit text view."
+          },
+          "mode": {
+            "description": "Write mode. Defaults to overwrite. append adds content to the end exactly as provided and does not add a newline.",
+            "type": "string",
+            "enum": [
+              "overwrite",
+              "append"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+]

@@ -1,0 +1,12 @@
+---
+source: tui/src/history_cell/tests.rs
+assertion_line: 1087
+expression: rendered
+---
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ✨ Update available! 0.0.0 -> 9.9.9                                                                                                    │
+│ Run sh -c 'curl -fsSL https://github.com/KillianLucas/oix/releases/latest/download/install.sh | CODEX_NON_INTERACTIVE=1 sh' to update. │
+│                                                                                                                                        │
+│ See full release notes:                                                                                                                │
+│ https://github.com/KillianLucas/oix/releases/latest                                                                                    │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

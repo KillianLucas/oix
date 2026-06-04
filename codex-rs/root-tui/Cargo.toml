@@ -1,0 +1,27 @@
+[package]
+name = "codex-root-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "interpreter-root-tui"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+codex-app-server-daemon = { workspace = true }
+codex-arg0 = { workspace = true }
+codex-config = { workspace = true }
+codex-product-info = { workspace = true }
+codex-tui = { workspace = true }
+codex-utils-absolute-path = { workspace = true }
+codex-utils-cli = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

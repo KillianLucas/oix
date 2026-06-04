@@ -1,0 +1,2621 @@
+[
+  {
+    "name": "agent_close",
+    "description": "Close a child sub-agent session by cancelling it if still running. Returns the final session projection with transcript_handle metadata.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Agent id returned by agent_open"
+        },
+        "name": {
+          "type": "string",
+          "description": "Session name returned by agent_open"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Alias for id"
+        }
+      }
+    }
+  },
+  {
+    "name": "agent_eval",
+    "description": "Fetch or wait on a child sub-agent session. Optionally deliver a message/items to a running session, then return the latest session projection. With block=true (default), waits for the session to reach a terminal boundary; block=false is a non-blocking status fetch. Terminal projections expose a handle_read-compatible transcript_handle for the full child transcript.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Session name returned by agent_open"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Generated agent id returned by agent_open"
+        },
+        "id": {
+          "type": "string",
+          "description": "Alias for agent_id"
+        },
+        "message": {
+          "type": "string",
+          "description": "Optional message to deliver before evaluating the session"
+        },
+        "input": {
+          "type": "string",
+          "description": "Alias for message"
+        },
+        "items": {
+          "type": "array",
+          "description": "Structured input items (text, mention, skill, local_image, image)",
+          "items": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "interrupt": {
+          "type": "boolean",
+          "description": "When sending input, prioritize it over pending inputs"
+        },
+        "block": {
+          "type": "boolean",
+          "description": "Wait for a terminal boundary before returning (default true)"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Max wait time in milliseconds (default: 30000, clamped to 1000-3600000)"
+        }
+      }
+    }
+  },
+  {
+    "name": "agent_open",
+    "description": "Open a named child sub-agent session for focused background work. Returns the session name, status, agent_id, context_mode, prefix_cache metadata, and a handle_read-compatible transcript_handle. Use agent_eval to fetch or wait on the session, and agent_close to cancel/close it.\n\nContext control is explicit: omit fork_context or set it false for a fresh child with an independent prefill; set fork_context=true for perspective fanout over the current parent context. Forked children preserve the parent system prompt and leading message prefix byte-identically where the runtime has that prefix, so DeepSeek can reuse its prefix cache before the child-specific task is appended.\n\nSub-agent results are self-reports. Re-verify claimed side effects such as file edits, commands, network writes, tests, or git operations before reporting them as facts.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Stable model-facing session name. Defaults to the generated agent_id when omitted."
+        },
+        "session_name": {
+          "type": "string",
+          "description": "Alias for name"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Initial task description for the child session"
+        },
+        "message": {
+          "type": "string",
+          "description": "Alias for prompt"
+        },
+        "objective": {
+          "type": "string",
+          "description": "Alias for prompt"
+        },
+        "items": {
+          "type": "array",
+          "description": "Structured input items (text, mention, skill, local_image, image)",
+          "items": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "type": {
+          "type": "string",
+          "description": "Sub-agent type: general, explore, plan, review, implementer, verifier, custom"
+        },
+        "agent_type": {
+          "type": "string",
+          "description": "Alias for type"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role alias: worker, explorer, awaiter, default"
+        },
+        "agent_role": {
+          "type": "string",
+          "description": "Alias for role"
+        },
+        "allowed_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Explicit tool allowlist (required for custom type)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Optional DeepSeek model id for this child"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory for the child; must be inside the parent workspace"
+        },
+        "resident_file": {
+          "type": "string",
+          "description": "Optional file path for cache-aware resident mode"
+        },
+        "fork_context": {
+          "type": "boolean",
+          "description": "false (default): fresh child with independent context/prefill. true: forked child that preserves the parent's byte-identical system/message prefix where available, then appends this task for DeepSeek prefix-cache reuse."
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "description": "Recursive child-agent budget for this session. 0 blocks agent_open from the child; 1-3 allow that many descendant levels."
+        }
+      }
+    }
+  },
+  {
+    "name": "apply_patch",
+    "description": "Apply a unified-diff patch (multi-hunk, multi-file). Use this instead of `git apply`, `patch`, or repeated `edit_file` calls in `exec_shell` — single transactional change with fuzzy matching and a rendered diff.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the file to patch (relative to workspace)"
+        },
+        "patch": {
+          "type": "string",
+          "description": "Unified diff patch content"
+        },
+        "changes": {
+          "type": "array",
+          "description": "Optional full file replacements (path + content).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ]
+          }
+        },
+        "fuzz": {
+          "type": "integer",
+          "description": "Maximum fuzz factor for fuzzy matching (default: 3)"
+        },
+        "create_if_missing": {
+          "type": "boolean",
+          "description": "Create the file if it doesn't exist (for new file patches)"
+        }
+      },
+      "oneOf": [
+        {},
+        {}
+      ]
+    }
+  },
+  {
+    "name": "automation_create",
+    "description": "Create a durable scheduled automation. Creation requires approval and recurrence is constrained to supported HOURLY/WEEKLY RRULE forms. Runs enqueue normal durable tasks.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "rrule": {
+          "type": "string",
+          "description": "Supported: FREQ=HOURLY;INTERVAL=N[;BYDAY=MO,TU] or FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=30"
+        },
+        "cwds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "paused": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "name",
+        "prompt",
+        "rrule"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "automation_delete",
+    "description": "Delete a durable automation and its run history. Requires approval.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "automation_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "automation_id"
+      ]
+    }
+  },
+  {
+    "name": "automation_list",
+    "description": "List durable automations with status, next run, and last run timestamps.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "automation_pause",
+    "description": "Pause a durable automation. Requires approval.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "automation_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "automation_id"
+      ]
+    }
+  },
+  {
+    "name": "automation_read",
+    "description": "Read one durable automation plus recent run records.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "automation_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "automation_id"
+      ]
+    }
+  },
+  {
+    "name": "automation_resume",
+    "description": "Resume a paused durable automation. Requires approval.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "automation_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "automation_id"
+      ]
+    }
+  },
+  {
+    "name": "automation_run",
+    "description": "Run an automation now. The run enqueues a normal durable task and returns linked task/thread/turn ids as they become available.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "automation_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "automation_id"
+      ]
+    }
+  },
+  {
+    "name": "automation_update",
+    "description": "Update a durable automation. Requires approval; recurrence remains constrained to supported RRULE forms.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "automation_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "rrule": {
+          "type": "string"
+        },
+        "cwds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "paused"
+          ]
+        }
+      },
+      "required": [
+        "automation_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "checklist_add",
+    "description": "Add one checklist item on the active thread/task. Durable tasks persist this checklist as subordinate work progress.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The task description"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ],
+          "description": "Task status (default: pending)"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "checklist_list",
+    "description": "List current checklist progress for the active thread/task.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "checklist_update",
+    "description": "Update one checklist item's status by id on the active thread/task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Todo item id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ],
+          "description": "New status"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ]
+    }
+  },
+  {
+    "name": "checklist_write",
+    "description": "Replace the active thread/task checklist. Use this for granular progress under the current durable task or runtime thread; durable tasks remain the real executable work object.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "todos": {
+          "type": "array",
+          "description": "The complete list of todo items. This replaces the existing list.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string",
+                "description": "The task description"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ],
+                "description": "Task status"
+              }
+            },
+            "required": [
+              "content",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "todos"
+      ]
+    }
+  },
+  {
+    "name": "diagnostics",
+    "description": "Report workspace info, git detection, sandbox availability, and Rust toolchain versions.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "edit_file",
+    "description": "Replace text in a single file via exact search/replace. Use this instead of `sed -i` in `exec_shell` for one unambiguous in-place edit. `search` matches exactly by default, including whitespace and indentation; set `fuzz: true` to tolerate leading-indentation differences. Returns a compact unified diff, not the full file. For structural, multi-block, or cross-file changes, use `apply_patch` or `write_file` instead.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the file"
+        },
+        "search": {
+          "type": "string",
+          "description": "Exact text to search for, including whitespace, indentation, and newlines"
+        },
+        "replace": {
+          "type": "string",
+          "description": "Text to replace with"
+        },
+        "fuzz": {
+          "type": "boolean",
+          "description": "When true, tolerate leading whitespace differences on each searched line (default false)"
+        }
+      },
+      "required": [
+        "path",
+        "search",
+        "replace"
+      ]
+    }
+  },
+  {
+    "name": "exec_interact",
+    "description": "Send input to a background shell task and return incremental output.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID returned by exec_shell"
+        },
+        "input": {
+          "type": "string",
+          "description": "Input to send to the task's stdin"
+        },
+        "stdin": {
+          "type": "string",
+          "description": "Alias for input"
+        },
+        "data": {
+          "type": "string",
+          "description": "Alias for input"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Wait for output after sending input (default: 1000)"
+        },
+        "close_stdin": {
+          "type": "boolean",
+          "description": "Close stdin after sending input"
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "exec_shell",
+    "description": "Execute a shell command in the workspace directory. Foreground mode is for bounded commands; use background=true or task_shell_start for long-running work, then poll/wait.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Timeout in milliseconds (default: 120000, max: 600000)"
+        },
+        "background": {
+          "type": "boolean",
+          "description": "Run in background and return task_id (default: false). Prefer true for commands that may run for minutes; poll with exec_shell_wait or task_shell_wait."
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "Run interactively with terminal IO (default: false)"
+        },
+        "stdin": {
+          "type": "string",
+          "description": "Optional stdin data to send before waiting (non-interactive only)"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory for the command"
+        },
+        "tty": {
+          "type": "boolean",
+          "description": "Allocate a pseudo-terminal for interactive programs (implies background)"
+        },
+        "combined_output": {
+          "type": "boolean",
+          "description": "Capture stdout and stderr as one chronological PTY stream (default false). In foreground mode, waits for completion; in background mode, implies tty."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  {
+    "name": "exec_shell_cancel",
+    "description": "Cancel a running background shell task by task_id, or cancel all running background shell tasks with all=true.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID returned by exec_shell or task_shell_start"
+        },
+        "id": {
+          "type": "string",
+          "description": "Alias for task_id"
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Cancel all currently running background shell tasks"
+        }
+      }
+    }
+  },
+  {
+    "name": "exec_shell_interact",
+    "description": "Send input to a background shell task and return incremental output.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID returned by exec_shell"
+        },
+        "input": {
+          "type": "string",
+          "description": "Input to send to the task's stdin"
+        },
+        "stdin": {
+          "type": "string",
+          "description": "Alias for input"
+        },
+        "data": {
+          "type": "string",
+          "description": "Alias for input"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Wait for output after sending input (default: 1000)"
+        },
+        "close_stdin": {
+          "type": "boolean",
+          "description": "Close stdin after sending input"
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "exec_shell_wait",
+    "description": "Wait for a background shell task and return incremental output. Turn cancellation stops waiting but leaves the background task running.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID returned by exec_shell"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Timeout in milliseconds (default: 30000, max: 600000). Use a higher value for long-running builds, CI watchers, and interactive commands that are expected to keep producing output."
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "Wait for completion before returning (default: true)"
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "exec_wait",
+    "description": "Wait for a background shell task and return incremental output. Turn cancellation stops waiting but leaves the background task running.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID returned by exec_shell"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Timeout in milliseconds (default: 30000, max: 600000). Use a higher value for long-running builds, CI watchers, and interactive commands that are expected to keep producing output."
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "Wait for completion before returning (default: true)"
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    }
+  },
+  {
+    "name": "fetch_url",
+    "description": "Fetch a known URL directly (HTTP GET) and return its content. Use this instead of `curl` in `exec_shell` — sandboxed, network-policy aware, and properly decoded. Plain-text endpoints (`.md`, `.txt`, `.json`, `.yaml`, `raw.githubusercontent.com`, public APIs) prefer this over the browser/automation stack. For unknown queries, use `web_search` first.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Absolute HTTP/HTTPS URL to fetch."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "text",
+            "markdown",
+            "raw"
+          ],
+          "description": "Post-processing for the response body. `markdown` (default) and `text` strip HTML tags to readable text; `raw` returns the body bytes as-is."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "description": "Truncate response body after this many bytes (default 1,000,000; hard max 10,485,760)."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Request timeout in milliseconds (default 15,000; max 60,000)."
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional JSONPath projections for JSON responses. Supports $, .field, [index], [*], and ['field']; returns matches under `fields`."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  {
+    "name": "file_search",
+    "description": "Find files by name using fuzzy matching with score-based ranking. Use this instead of `find -name` or `fd` in `exec_shell` for filename search. Pass `extensions` to filter by suffix.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query (file name or path fragment)."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional base path to search (relative to workspace)."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return (default: 20)."
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional list of file extensions to include (e.g. [\"rs\", \"md\"])."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional glob patterns to exclude, matching grep_files' convention (e.g. [\"target/**\", \"*.lock\"])."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "fim_edit",
+    "description": "Edit a file using Fill-in-the-Middle (FIM) completion. Provide a file path, prefix_anchor (text that appears before the section to replace), and suffix_anchor (text that appears after the section to replace). The tool calls DeepSeek's FIM endpoint to generate replacement content.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the file to edit (relative to workspace)"
+        },
+        "prefix_anchor": {
+          "type": "string",
+          "description": "Text anchor marking the end of the prefix. Everything up to and including this anchor is kept as-is before the generated middle."
+        },
+        "suffix_anchor": {
+          "type": "string",
+          "description": "Text anchor marking the start of the suffix. Everything from this anchor onward is kept as-is after the generated middle."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Maximum tokens to generate (default: 1024)"
+        }
+      },
+      "required": [
+        "path",
+        "prefix_anchor",
+        "suffix_anchor"
+      ]
+    }
+  },
+  {
+    "name": "finance",
+    "description": "Fetch a live market quote for a stock, ETF, or crypto ticker using Yahoo Finance-style public endpoints.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ticker": {
+          "type": "string",
+          "description": "Ticker symbol to look up (for example: AAPL, SPY, BTC)."
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Alias for ticker."
+        },
+        "type": {
+          "type": "string",
+          "description": "Optional asset type hint such as equity, fund, crypto, or index."
+        },
+        "market": {
+          "type": "string",
+          "description": "Optional market hint retained for compatibility with finance-style tool calls."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Request timeout in milliseconds (default: 10000, max: 60000)."
+        }
+      },
+      "anyOf": [
+        {},
+        {}
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "git_blame",
+    "description": "Run `git blame` on a file with optional revision and line-range controls.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to a tracked file within the workspace."
+        },
+        "rev": {
+          "type": "string",
+          "description": "Optional revision to blame against (default: HEAD)."
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "First line to include in blame output."
+        },
+        "max_lines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000,
+          "default": 200,
+          "description": "Maximum number of lines to include."
+        },
+        "porcelain": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, emit `--line-porcelain` output."
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "git_diff",
+    "description": "Run `git diff` in the workspace with sensible defaults and safe truncation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional subdirectory or file to scope the diff to (must be within the workspace)."
+        },
+        "cached": {
+          "type": "boolean",
+          "description": "When true, diff staged changes (`--cached`)."
+        },
+        "unified": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 3,
+          "description": "Number of context lines to include around changes."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "git_log",
+    "description": "Run `git log` in the workspace with optional path and author/date filters.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional subdirectory or file path to scope history to."
+        },
+        "max_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20,
+          "description": "Maximum number of commits to return."
+        },
+        "author": {
+          "type": "string",
+          "description": "Optional git author filter (same semantics as `git log --author`)."
+        },
+        "since": {
+          "type": "string",
+          "description": "Optional lower date bound, e.g. '2 weeks ago' or ISO date."
+        },
+        "until": {
+          "type": "string",
+          "description": "Optional upper date bound, e.g. 'yesterday' or ISO date."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "git_show",
+    "description": "Run `git show` for a specific revision with optional patch and stats.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "rev": {
+          "type": "string",
+          "description": "Revision to show (commit SHA, tag, branch, or ref expression)."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional subdirectory or file path to scope output."
+        },
+        "patch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include patch hunks (default true)."
+        },
+        "stat": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include --stat summary (default true)."
+        },
+        "unified": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 3,
+          "description": "Context lines for patch output when patch=true."
+        }
+      },
+      "required": [
+        "rev"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "git_status",
+    "description": "Run `git status --porcelain=v1 -b` in the workspace (optionally scoped to a path).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional subdirectory or file to scope the status to (must be within the workspace)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "github_close_issue",
+    "description": "Close a GitHub issue only when structured acceptance evidence is present and approved. For pull requests use github_close_pr; do not call PRs issues in user-facing output. Never close merely because the agent is stopping.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "files_changed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tests_run": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "commits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "final_status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "files_changed",
+            "tests_run",
+            "final_status"
+          ]
+        },
+        "comment": {
+          "type": "string"
+        },
+        "allow_dirty": {
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "number",
+        "acceptance_criteria",
+        "evidence"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "github_close_pr",
+    "description": "Close a GitHub pull request only when structured acceptance evidence is present and approved. Use this for PRs instead of github_close_issue so the UI, audit trail, and comments keep PR wording clear.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "files_changed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tests_run": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "commits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "final_status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "files_changed",
+            "tests_run",
+            "final_status"
+          ]
+        },
+        "comment": {
+          "type": "string"
+        },
+        "allow_dirty": {
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "number",
+        "acceptance_criteria",
+        "evidence"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "github_comment",
+    "description": "Post an evidence-backed GitHub issue/PR comment with gh. Requires approval. Use blocker comments for partial work; do not claim closure without evidence.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "issue",
+            "pr"
+          ]
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {}
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "target",
+        "number",
+        "body",
+        "evidence"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "github_issue_context",
+    "description": "Read GitHub issue context using gh. Read-only: body/comments/labels/state are summarized and large bodies become task artifacts when a durable task is active.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "include_comments": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "number"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "github_pr_context",
+    "description": "Read GitHub PR context using gh: body/comments/reviews/check status/files and optional diff artifact. Read-only; no push/merge/close.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "include_diff": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "number"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "grep_files",
+    "description": "Search for a regex pattern in workspace files. Use this instead of `grep -r`, `rg`, or `find ... -exec grep` in `exec_shell` — pure-Rust, faster, and respects `.gitignore`. Returns matching lines with context (default: 2 lines before/after each match).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Regular expression pattern to search for"
+        },
+        "path": {
+          "type": "string",
+          "description": "Directory or file to search (relative to workspace, default: .)"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns for files to include (e.g., ['*.rs', '*.ts'])"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns for files to exclude (e.g., ['*.min.js', 'node_modules/*'])"
+        },
+        "context_lines": {
+          "type": "integer",
+          "description": "Number of context lines before and after each match (default: 2)"
+        },
+        "case_insensitive": {
+          "type": "boolean",
+          "description": "Whether to perform case-insensitive matching (default: false)"
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum number of results to return (default: 100)"
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    }
+  },
+  {
+    "name": "handle_read",
+    "description": "Read a bounded projection from a var_handle returned by tools such as RLM sessions or sub-agents. This does not read artifact ids (`art_...`), tool-call ids (`call_...`), SHA refs, or files; use retrieve_tool_result for spilled tool results/artifacts and read_file for workspace files. Provide exactly one projection: `slice` for char/line slices, `range` for one-based line ranges, `count` for metadata counts, or `jsonpath` for a small JSON-path projection. This retrieves from the handle's backing environment instead of asking the parent transcript to hold the full payload.",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "handle"
+      ],
+      "properties": {
+        "handle": {
+          "description": "A var_handle object, or a compact `session_id/name` string. Not an `art_...`, `call_...`, SHA, or file path ref.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "session_id",
+                "name"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "var_handle"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "length": {
+                  "type": "integer"
+                },
+                "repr_preview": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "slice": {
+          "type": "object",
+          "description": "Zero-based half-open slice over chars or lines.",
+          "properties": {
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unit": {
+              "type": "string",
+              "enum": [
+                "chars",
+                "lines"
+              ],
+              "default": "chars"
+            }
+          }
+        },
+        "range": {
+          "type": "object",
+          "description": "One-based inclusive line range.",
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "count": {
+          "type": "boolean",
+          "description": "Return counts for the handle payload."
+        },
+        "jsonpath": {
+          "type": "string",
+          "description": "Small JSONPath subset: $, .field, [index], [*], and ['field']."
+        },
+        "introspect": {
+          "type": "boolean",
+          "description": "Return supported projections, size hints, and copy-pasteable examples for this handle."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return in this projection. Defaults to 12000; hard-capped at 50000."
+        }
+      }
+    }
+  },
+  {
+    "name": "image_ocr",
+    "description": "Extract text from an image (PNG, JPEG, or TIFF) via local OCR. On macOS this uses the built-in Vision framework; otherwise it uses local tesseract when available. Use this for screenshots, scanned receipts/whiteboards, image-only PDFs, or any visual that contains text the model needs to read. Returns the extracted text inline; no file is written.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the image file (relative to workspace or absolute). PNG / JPEG / TIFF supported."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "list_dir",
+    "description": "List entries in a directory relative to the workspace. Use this instead of `ls`, `ls -la`, or `find . -maxdepth 1` in `exec_shell` for directory listings.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Relative path (default: .)"
+        }
+      }
+    }
+  },
+  {
+    "name": "load_skill",
+    "description": "Load a skill (SKILL.md body + companion file list) into the next turn's context. Use this when the user names a skill or the task clearly matches a skill listed in the system prompt's `## Skills` section. Faster than read_file + list_dir.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Skill id (the `name` field from the SKILL.md frontmatter, also shown in the `## Skills` listing)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "note",
+    "description": "Append a note to the agent notes file for persistent context across sessions.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The note content to append"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "notify",
+    "description": "Fire a single desktop notification (OSC 9 / terminal bell). Use sparingly — only when a long-running task completes, when a turn was waiting on a remote operation that just finished, or when the user genuinely needs to come back to the terminal. Pass a short `title` and an optional `body`. Do NOT use this for routine progress updates, conversational acknowledgements, or confirmation that the model is alive — that's noise. The user can disable notifications entirely via `[notifications].method = \"off\"` in `~/.deepseek/config.toml`; when disabled this tool is a silent no-op.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Short notification title (≤ 80 chars after truncation). Required."
+        },
+        "body": {
+          "type": "string",
+          "description": "Optional longer body (≤ 200 chars after truncation)."
+        }
+      },
+      "required": [
+        "title"
+      ]
+    }
+  },
+  {
+    "name": "pandoc_convert",
+    "description": "Convert a document between formats via pandoc. Reads `source_path` (any pandoc-supported input format — pandoc autodetects from extension), converts to `target_format`, and either writes the result to `output_path` (when provided) or returns the converted text inline. Supported targets: markdown, gfm, commonmark, html, rst, latex, docx, odt, epub, plain, asciidoc. Use this instead of shelling out to pandoc via `exec_shell` — no approval prompt for output_path-less reads, structured errors, and a curated format whitelist.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "source_path": {
+          "type": "string",
+          "description": "Path to the source document (relative to workspace or absolute). Pandoc autodetects the input format from the file extension."
+        },
+        "target_format": {
+          "type": "string",
+          "description": "One of: markdown, gfm, commonmark, html, rst, latex, docx, odt, epub, plain, asciidoc.",
+          "enum": [
+            "markdown",
+            "gfm",
+            "commonmark",
+            "html",
+            "rst",
+            "latex",
+            "docx",
+            "odt",
+            "epub",
+            "plain",
+            "asciidoc"
+          ]
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Optional path to write the converted document to. When omitted, the converted text is returned inline (text formats only — binary formats like docx/odt/epub require output_path)."
+        }
+      },
+      "required": [
+        "source_path",
+        "target_format"
+      ]
+    }
+  },
+  {
+    "name": "pr_attempt_list",
+    "description": "List PR attempts recorded on a durable task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id; defaults to active task."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "pr_attempt_preflight",
+    "description": "Run `git apply --check` for a recorded attempt patch. This is a no-mutation preflight; actual apply remains explicit and approval-gated elsewhere.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id; defaults to active task."
+        },
+        "attempt_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "pr_attempt_read",
+    "description": "Read one recorded PR attempt and its patch artifact reference.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id; defaults to active task."
+        },
+        "attempt_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "pr_attempt_record",
+    "description": "Capture current git diff as a durable PR work attempt with patch artifact, changed files, and verification notes.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task to attach to; defaults to active task."
+        },
+        "attempt_group_id": {
+          "type": "string"
+        },
+        "attempt_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempt_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "summary": {
+          "type": "string"
+        },
+        "verification": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project_map",
+    "description": "Get a high-level map of the project structure, including key files and a tree view.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "max_depth": {
+          "type": "integer",
+          "description": "Maximum depth for the tree view (default: 3)."
+        }
+      }
+    }
+  },
+  {
+    "name": "read_file",
+    "description": "Read a UTF-8 file from the workspace. Use this instead of `cat`, `head`, `tail`, or `sed -n '..p'` in `exec_shell` — it's faster, sandbox-aware, and skips the approval prompt. Plain text is returned as-is; PDFs are auto-extracted via the bundled pure-Rust extractor (no Poppler install required). Image screenshots are OCR-extracted when local OCR is available. Cannot read other non-PDF binaries.\n\nFor large files, use `start_line` and `max_lines` to read in chunks. By default, returns at most 200 lines (~16KB). If `truncated=\"true\"` in the response, use `next_start_line` to continue reading. For PDFs, use `pages` instead — `start_line`/`max_lines` only apply to text files.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the file (relative to workspace or absolute)"
+        },
+        "start_line": {
+          "type": "integer",
+          "description": "Starting line (1-based, default 1)"
+        },
+        "max_lines": {
+          "type": "integer",
+          "description": "Maximum lines to return (default 200, max 500)"
+        },
+        "pages": {
+          "type": "string",
+          "description": "PDF only: page range to extract, e.g. \"1-5\" or \"10\". Ignored for non-PDF files."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "recall_archive",
+    "description": "Search prior context cycles for content not in your briefing. Use sparingly — frequent recalls mean your briefing was too sparse; refine your next briefing.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query. Tokenized and BM25-scored against archived messages."
+        },
+        "cycle": {
+          "type": "integer",
+          "description": "Optional: limit to a specific prior cycle number."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum hits to return (default 3, hard-capped at 10)."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "request_user_input",
+    "description": "Ask the user 1-3 short questions and return their selections.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "header": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "question": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "description"
+                  ]
+                },
+                "minItems": 2,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "header",
+              "id",
+              "question",
+              "options"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "questions"
+      ]
+    }
+  },
+  {
+    "name": "retrieve_tool_result",
+    "description": "Retrieve a previously spilled large tool result. Accepts a tool_call_id (`call_abc123`), artifact id (`art_call_abc123`), SHA reference (`sha:<64-hex>` or bare 64-hex from `<TOOL_RESULT_REF>`), relative filename (`call_abc123.txt`, `artifacts/art_call_abc123.txt`), or absolute path under ~/.deepseek. Modes: summary, head, tail, lines, query.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "Tool call id, artifact id (`art_<id>`), SHA ref (`sha:<64-hex>`), spillover filename, or absolute path under ~/.deepseek."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "head",
+            "tail",
+            "lines",
+            "query"
+          ],
+          "description": "Retrieval mode. Defaults to summary."
+        },
+        "query": {
+          "type": "string",
+          "description": "Case-insensitive substring to search for when mode=query."
+        },
+        "lines": {
+          "type": "string",
+          "description": "Line selector for mode=lines, e.g. \"10\" or \"10-40\"."
+        },
+        "start_line": {
+          "type": "integer",
+          "description": "1-based first line for mode=lines."
+        },
+        "end_line": {
+          "type": "integer",
+          "description": "1-based final line for mode=lines."
+        },
+        "line_count": {
+          "type": "integer",
+          "description": "Number of lines for head/tail modes. Default 40, hard cap 500."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "description": "Maximum bytes of excerpt text returned. Default 8192, hard cap 131072."
+        },
+        "max_matches": {
+          "type": "integer",
+          "description": "Maximum query matches or signal lines returned. Default 20, hard cap 100."
+        },
+        "context_lines": {
+          "type": "integer",
+          "description": "Extra lines around each query match. Default 1, hard cap 5."
+        }
+      },
+      "required": [
+        "ref"
+      ]
+    }
+  },
+  {
+    "name": "revert_turn",
+    "description": "Roll back the workspace files to the snapshot taken before a recent turn. Use when the user explicitly asks to undo, revert, or roll back the most recent edits. `turn_offset` is 1-based: 1 reverts the most recent turn, 2 reverts the previous one, and so on (max 50). Conversation history is NOT modified — only working-tree files are restored from the side-git snapshot repo.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "turn_offset": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "How many turns back to revert (default 1)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "review",
+    "description": "Run a structured code review for a file, git diff, or GitHub pull request.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "File path, PR URL, or the literal 'diff'/'staged' for git diff review."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Optional explicit target type: file, diff, or pr."
+        },
+        "base": {
+          "type": "string",
+          "description": "Optional git base ref when using diff target (e.g. origin/main)."
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "Review staged changes when using diff target (default: false)."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to include from the source (default: 200000)."
+        }
+      },
+      "required": [
+        "target"
+      ]
+    }
+  },
+  {
+    "name": "rlm_close",
+    "description": "Close a named RLM context, tear down its Python kernel, and return usage/lifecycle metadata.",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "RLM context name from rlm_open."
+        }
+      }
+    }
+  },
+  {
+    "name": "rlm_configure",
+    "description": "Configure a named RLM context: output feedback, child query timeout, recursive sub-RLM depth, and explicit session sharing.",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "output_feedback": {
+          "type": "string",
+          "enum": [
+            "full",
+            "metadata"
+          ]
+        },
+        "sub_query_timeout_secs": {
+          "type": "integer"
+        },
+        "sub_rlm_max_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "share_session": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  {
+    "name": "rlm_eval",
+    "description": "Run one Python REPL block against a named RLM context. Returns a bounded projection of stdout/stderr plus metadata. If the code calls FINAL/finalize, the final value is stored as a var_handle retrievable with handle_read instead of copied unbounded into the parent context. Batch child helpers require dependency_mode='independent'; use sub_query_sequence or a sequential loop for dependent work.",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "name",
+        "code"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "RLM context name from rlm_open."
+        },
+        "code": {
+          "type": "string",
+          "description": "Python code to execute. Do not include markdown fences."
+        }
+      }
+    }
+  },
+  {
+    "name": "rlm_open",
+    "description": "Open a persistent RLM context. Loads `file_path`, `content`, or `url` into a named Python kernel and returns only metadata: name, length, preview, and sha256. Use this for large or unfamiliar inputs so the parent transcript holds a handle, not the body.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Caller-chosen context name, unique within this parent session. Defaults to a slug from the source."
+        },
+        "file_path": {
+          "type": "string",
+          "description": "Workspace-relative file to load."
+        },
+        "content": {
+          "type": "string",
+          "description": "Inline content to load. Capped at 200k chars."
+        },
+        "url": {
+          "type": "string",
+          "description": "HTTP/HTTPS URL to fetch through fetch_url and load."
+        },
+        "session_object": {
+          "type": "string",
+          "description": "Stable symbolic active-session ref from rlm_session_objects, for example session://active/system_prompt or session://active/messages/0."
+        }
+      }
+    }
+  },
+  {
+    "name": "rlm_session_objects",
+    "description": "List active prompt/history/session symbolic objects as compact cards. Pass one of the returned `id` values to `rlm_open` as `session_object` to inspect it inside an RLM REPL without copying the full prompt or transcript into the parent context.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "run_tests",
+    "description": "Run `cargo test` in the workspace root with optional extra arguments.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "string",
+          "description": "Optional extra arguments to pass to `cargo test` (shell-style)."
+        },
+        "all_features": {
+          "type": "boolean",
+          "description": "When true, include `--all-features`."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_cancel",
+    "description": "Cancel a queued or running durable task through TaskManager. Requires approval because it changes work state.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Full task id or unambiguous prefix."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_create",
+    "description": "Create/enqueue a durable background task through TaskManager. Durable tasks are restart-aware executable work, distinct from sub-agents.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Work prompt for the durable task."
+        },
+        "model": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string",
+          "description": "Workspace path; defaults to current workspace."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "agent",
+            "plan",
+            "yolo"
+          ]
+        },
+        "allow_shell": {
+          "type": "boolean"
+        },
+        "trust_mode": {
+          "type": "boolean"
+        },
+        "auto_approve": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_gate_run",
+    "description": "Run an approved verification gate command and return structured evidence. When inside a durable task, the gate result and log artifact are attached to that task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "enum": [
+            "fmt",
+            "check",
+            "clippy",
+            "test",
+            "custom"
+          ],
+          "description": "Gate category."
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to run."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory within the workspace."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 600000
+        }
+      },
+      "required": [
+        "gate",
+        "command"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_list",
+    "description": "List recent durable tasks with status, linked thread/turn ids, and concise summaries.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_read",
+    "description": "Read durable task detail including timeline, checklist, gate evidence, artifacts, and PR attempts.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Full task id or unambiguous prefix."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_shell_start",
+    "description": "Start a long-running shell command in the background and return a shell task_id immediately. Use task_shell_wait to poll and optionally record gate evidence on the active durable task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory within the workspace."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 600000
+        },
+        "stdin": {
+          "type": "string"
+        },
+        "tty": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "task_shell_wait",
+    "description": "Poll a background shell task without blocking the agent indefinitely. If `gate` is supplied and the shell task has completed, records structured gate evidence on the active durable task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Background shell task id returned by task_shell_start or exec_shell."
+        },
+        "wait": {
+          "type": "boolean",
+          "default": false
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 600000
+        },
+        "gate": {
+          "type": "string",
+          "enum": [
+            "fmt",
+            "check",
+            "clippy",
+            "test",
+            "custom"
+          ]
+        },
+        "command": {
+          "type": "string",
+          "description": "Original command, used when recording gate evidence."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "todo_add",
+    "description": "Compatibility alias for checklist_add. Adds one checklist item on the active thread/task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The task description"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ],
+          "description": "Task status (default: pending)"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "todo_list",
+    "description": "Compatibility alias for checklist_list. Lists current checklist progress.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "todo_update",
+    "description": "Compatibility alias for checklist_update. Updates one checklist item by id on the active thread/task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Todo item id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ],
+          "description": "New status"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ]
+    }
+  },
+  {
+    "name": "todo_write",
+    "description": "Compatibility alias for checklist_write. Replace the active thread/task checklist; durable tasks are the real executable work object.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "todos": {
+          "type": "array",
+          "description": "The complete list of todo items. This replaces the existing list.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string",
+                "description": "The task description"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ],
+                "description": "Task status"
+              }
+            },
+            "required": [
+              "content",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "todos"
+      ]
+    }
+  },
+  {
+    "name": "tool_agent",
+    "description": "Open an experimental fast-lane execution agent (Fin): DeepSeek V4 Flash with thinking forced off. Use it for simple tool-bound work such as OCR, file/search lookups, fetches, or command probes where the parent model should keep planning and synthesis context clean. Returns the same session projection as agent_open; use agent_eval to fetch/wait and agent_close to close it. Do not use this for nuanced implementation, architecture, release decisions, or tasks that need careful reasoning.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Stable model-facing session name. Defaults to the generated agent_id when omitted."
+        },
+        "session_name": {
+          "type": "string",
+          "description": "Alias for name"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Initial tool-bound task for the fast execution agent"
+        },
+        "message": {
+          "type": "string",
+          "description": "Alias for prompt"
+        },
+        "objective": {
+          "type": "string",
+          "description": "Alias for prompt"
+        },
+        "items": {
+          "type": "array",
+          "description": "Structured input items (text, mention, skill, local_image, image)",
+          "items": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "allowed_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional explicit tool allowlist for this executor"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory for the child; must be inside the parent workspace"
+        },
+        "fork_context": {
+          "type": "boolean",
+          "description": "Defaults to false. Set true only when the executor needs the parent prefix."
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "description": "Recursive child-agent budget. Defaults to 0 for tool_agent."
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  {
+    "name": "update_plan",
+    "description": "Update optional high-level strategy metadata for complex initiatives. Use checklist_write for primary Work progress; update_plan should capture phase-level approach changes, not duplicate checklist items. Each strategy step has a description and status (pending, in_progress, completed). Optionally include an explanation of the overall approach.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "explanation": {
+          "type": "string",
+          "description": "Optional high-level explanation of the plan or approach"
+        },
+        "plan": {
+          "type": "array",
+          "description": "List of plan steps",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step": {
+                "type": "string",
+                "description": "Description of the step"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ],
+                "description": "Step status"
+              }
+            },
+            "required": [
+              "step",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "plan"
+      ]
+    }
+  },
+  {
+    "name": "validate_data",
+    "description": "Validate JSON or TOML content from inline input or a workspace file.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to a file within the workspace."
+        },
+        "content": {
+          "type": "string",
+          "description": "Optional inline content to validate."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "json",
+            "toml"
+          ],
+          "default": "auto",
+          "description": "Validation format. 'auto' infers from extension then falls back to trying both."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "web-x00002E-run",
+    "description": "Browse the web (search/open/click/find/screenshot/image_query) and return structured results with ref_ids for citations.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "search_query": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string"
+              },
+              "recency": {
+                "type": "integer"
+              },
+              "max_results": {
+                "type": "integer"
+              },
+              "timeout_ms": {
+                "type": "integer"
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "q"
+            ]
+          }
+        },
+        "image_query": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string"
+              },
+              "recency": {
+                "type": "integer"
+              },
+              "max_results": {
+                "type": "integer"
+              },
+              "timeout_ms": {
+                "type": "integer"
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "q"
+            ]
+          }
+        },
+        "open": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string"
+              },
+              "lineno": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ref_id"
+            ]
+          }
+        },
+        "click": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ref_id",
+              "id"
+            ]
+          }
+        },
+        "find": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string"
+              },
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ref_id",
+              "pattern"
+            ]
+          }
+        },
+        "screenshot": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string"
+              },
+              "pageno": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ref_id",
+              "pageno"
+            ]
+          }
+        },
+        "response_length": {
+          "type": "string",
+          "enum": [
+            "short",
+            "medium",
+            "long"
+          ],
+          "description": "Controls result verbosity"
+        }
+      }
+    }
+  },
+  {
+    "name": "web_search",
+    "description": "Search the web and return ranked results with URLs and snippets. Default backend is Bing; set `[search] provider = \"duckduckgo\" | \"tavily\" | \"bocha\"` in config.toml to switch backends. Use this instead of scraping search engines with `curl` in `exec_shell`. For a known canonical URL, prefer `fetch_url` directly.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query. Compatibility aliases: q, or search_query[0].q."
+        },
+        "q": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "search_query": {
+          "type": "array",
+          "description": "Array form for advanced queries: [{\"q\":\"...\", \"max_results\": 5}]",
+          "items": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "max_results": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum number of results to return (default: 5, max: 10)"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Timeout in milliseconds (default: 15000, max: 60000)"
+        }
+      }
+    }
+  },
+  {
+    "name": "write_file",
+    "description": "Write content to a UTF-8 file in the workspace. Use this instead of heredocs (`cat <<EOF > file`) or `echo > file` in `exec_shell` — diffs render inline and approval is handled cleanly. Creates or overwrites; parent directories are auto-created.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the file"
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "code_execution",
+    "description": "Execute Python code in a local sandboxed runtime and return stdout/stderr/return_code as JSON.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Python source code to execute."
+        }
+      },
+      "required": [
+        "code"
+      ]
+    }
+  },
+  {
+    "name": "js_execution",
+    "description": "Execute JavaScript code in a local sandboxed Node.js runtime and return stdout/stderr/return_code as JSON.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "JavaScript source code to execute."
+        }
+      },
+      "required": [
+        "code"
+      ]
+    }
+  },
+  {
+    "name": "tool_search_tool_regex",
+    "description": "Search deferred tool definitions using a regex query and return matching tool references.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Regex pattern to search tool names/descriptions/schema."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "tool_search_tool_bm25",
+    "description": "Search deferred tool definitions using natural-language matching and return matching tool references.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Natural language query for tool discovery."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  }
+]

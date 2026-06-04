@@ -1,0 +1,6 @@
+---
+source: tui/src/chatwidget/tests/status_surface_previews.rs
+expression: snapshot
+---
+status line: my-project · feat/awesome-feature · thread title · read-only, no-network · Ask for approval
+terminal title: thread title | feat/awesome-feature | Tasks 0/0

@@ -1,0 +1,35 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "codex-code-mode"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "codex_code_mode"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+codex-protocol = { workspace = true }
+deno_core_icudata = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
+v8 = { workspace = true, optional = true }
+
+[features]
+# Off by default: the in-process V8 JavaScript runtime is enormous and only
+# needed by the under-development code mode runtime. Without it, code-mode keeps
+# its tool schema/description helpers and returns a clear execution error.
+# Enable when actually shipping code mode: --features codex-code-mode/v8-runtime
+default = []
+sandbox = ["v8?/v8_enable_sandbox"]
+v8-runtime = ["dep:v8", "dep:deno_core_icudata"]
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
