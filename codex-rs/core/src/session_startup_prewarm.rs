@@ -221,9 +221,15 @@ async fn schedule_startup_prewarm_inner(
             text: base_instructions,
         },
     );
+    // Prewarm uses the same compatibility envelope as real turns.
+    startup_turn_context
+        .turn_metadata_state
+        .wait_for_git_enrichment()
+        .await;
+    let window_id = session.services.model_client.current_window_id();
     let startup_turn_metadata_header = startup_turn_context
         .turn_metadata_state
-        .current_header_value();
+        .current_header_value_for_prewarm(&window_id);
     let mut client_session = session.services.model_client.new_session();
     client_session
         .prewarm_websocket(

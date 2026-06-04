@@ -12,6 +12,7 @@ use codex_client::with_chatgpt_cloudflare_cookie_store;
 use codex_terminal_detection::user_agent;
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
+use reqwest::header::USER_AGENT;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -33,6 +34,8 @@ use std::sync::RwLock;
 /// Parenthesis will be added by Codex. This should only specify what goes inside of the parenthesis.
 pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
+/// Single source of truth lives with the provider headers it gates.
+pub use codex_model_provider_info::CODEX_BACKEND_CLIENT_VERSION;
 pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
 
@@ -130,7 +133,7 @@ pub fn is_first_party_chat_originator(originator_value: &str) -> bool {
 }
 
 pub fn get_codex_user_agent() -> String {
-    let build_version = env!("CARGO_PKG_VERSION");
+    let build_version = CODEX_BACKEND_CLIENT_VERSION;
     let os_info = os_info::get();
     let originator = originator();
     let prefix = format!(
@@ -219,12 +222,7 @@ pub fn build_reqwest_client() -> reqwest::Client {
 /// Callers that need a structured CA-loading failure instead of the legacy logged fallback can use
 /// this method directly.
 pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransportError> {
-    let ua = get_codex_user_agent();
-
-    let mut builder = reqwest::Client::builder()
-        // Set UA via dedicated helper to avoid header validation pitfalls
-        .user_agent(ua)
-        .default_headers(default_headers());
+    let mut builder = reqwest::Client::builder().default_headers(default_headers());
     if is_sandboxed() {
         builder = builder.no_proxy();
     }
@@ -236,6 +234,10 @@ pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransp
 pub fn default_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("originator", originator().header_value);
+    // Websocket handshakes use these headers directly, so keep User-Agent here.
+    if let Ok(user_agent) = HeaderValue::from_str(&get_codex_user_agent()) {
+        headers.insert(USER_AGENT, user_agent);
+    }
     if let Ok(guard) = REQUIREMENTS_RESIDENCY.read()
         && let Some(requirement) = guard.as_ref()
         && !headers.contains_key(RESIDENCY_HEADER_NAME)

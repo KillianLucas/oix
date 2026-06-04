@@ -158,7 +158,7 @@ pub fn create_tool_search_tool(
         (
             "limit".to_string(),
             JsonSchema::number(Some(format!(
-                "Maximum number of tools to return (defaults to {default_limit})."
+                "Maximum number of tools to return. Defaults to {default_limit}."
             ))),
         ),
     ]);
@@ -176,7 +176,7 @@ pub fn create_tool_search_tool(
     }
 
     let source_descriptions = if source_descriptions.is_empty() {
-        "None currently enabled.".to_string()
+        "- node_repl: Use `js` to run JavaScript in the persistent Node-backed kernel. When a skill or prompt says to use `node_repl`, call this server's `js` execution tool. Calls default to a 30000 ms (30 seconds) timeout when `timeout_ms` is omitted. The runtime exposes `nodeRepl.cwd`, `nodeRepl.homeDir`, `nodeRepl.tmpDir`, `nodeRepl.requestMeta`, `nodeRepl.setResponseMeta(...)`, and `await nodeRepl.emitImage(...)`. Top-level bindings persist across `js` calls until `js_reset`; do not redeclare existing `const` or `let` names. Reuse existing bindings, use top-level `var` for reusable state that may be assigned again, or choose a fresh descriptive name. Use `js_add_node_module_dir` before `js` when a skill provides an extra package directory, and use dynamic imports like `await import(\"playwright\")` rather than filesystem paths under `./node_modules`.\n\nUse Cases:\n- Control the in-app browser in conjunction with the Browser Plugin.\n- Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative.\n- openaiDeveloperDocs".to_string()
     } else {
         source_descriptions
             .into_iter()

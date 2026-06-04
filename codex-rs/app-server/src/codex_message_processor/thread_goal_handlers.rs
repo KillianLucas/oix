@@ -452,6 +452,7 @@ fn thread_goal_status_to_state(status: ThreadGoalStatus) -> codex_state::ThreadG
         ThreadGoalStatus::Active => codex_state::ThreadGoalStatus::Active,
         ThreadGoalStatus::Paused => codex_state::ThreadGoalStatus::Paused,
         ThreadGoalStatus::BudgetLimited => codex_state::ThreadGoalStatus::BudgetLimited,
+        ThreadGoalStatus::Blocked => codex_state::ThreadGoalStatus::Blocked,
         ThreadGoalStatus::Complete => codex_state::ThreadGoalStatus::Complete,
     }
 }
@@ -461,6 +462,7 @@ fn thread_goal_status_from_state(status: codex_state::ThreadGoalStatus) -> Threa
         codex_state::ThreadGoalStatus::Active => ThreadGoalStatus::Active,
         codex_state::ThreadGoalStatus::Paused => ThreadGoalStatus::Paused,
         codex_state::ThreadGoalStatus::BudgetLimited => ThreadGoalStatus::BudgetLimited,
+        codex_state::ThreadGoalStatus::Blocked => ThreadGoalStatus::Blocked,
         codex_state::ThreadGoalStatus::Complete => ThreadGoalStatus::Complete,
     }
 }

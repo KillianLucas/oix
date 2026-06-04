@@ -225,6 +225,8 @@ struct SpawnAgentArgs {
     agent_type: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<ReasoningEffort>,
+    #[serde(rename = "service_tier")]
+    _service_tier: Option<String>,
     fork_turns: Option<String>,
     fork_context: Option<bool>,
 }

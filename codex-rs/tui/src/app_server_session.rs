@@ -143,6 +143,7 @@ pub(crate) struct AppServerSession {
     client: AppServerClient,
     next_request_id: i64,
     remote_cwd_override: Option<PathBuf>,
+    cli_kv_overrides: Vec<(String, toml::Value)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,11 +199,20 @@ impl AppServerSession {
             client,
             next_request_id: 1,
             remote_cwd_override: None,
+            cli_kv_overrides: Vec::new(),
         }
     }
 
     pub(crate) fn with_remote_cwd_override(mut self, remote_cwd_override: Option<PathBuf>) -> Self {
         self.remote_cwd_override = remote_cwd_override;
+        self
+    }
+
+    pub(crate) fn with_cli_kv_overrides(
+        mut self,
+        cli_kv_overrides: Vec<(String, toml::Value)>,
+    ) -> Self {
+        self.cli_kv_overrides = cli_kv_overrides;
         self
     }
 
@@ -365,6 +375,7 @@ impl AppServerSession {
                     self.thread_params_mode(),
                     self.remote_cwd_override.as_deref(),
                     session_start_source,
+                    &self.cli_kv_overrides,
                 ),
             })
             .await
@@ -387,6 +398,7 @@ impl AppServerSession {
                     thread_id,
                     self.thread_params_mode(),
                     self.remote_cwd_override.as_deref(),
+                    &self.cli_kv_overrides,
                 ),
             })
             .await
@@ -414,6 +426,7 @@ impl AppServerSession {
                     thread_id,
                     self.thread_params_mode(),
                     self.remote_cwd_override.as_deref(),
+                    &self.cli_kv_overrides,
                 ),
             })
             .await
@@ -1086,13 +1099,25 @@ fn approvals_reviewer_override_from_config(
 
 fn config_request_overrides_from_config(
     config: &Config,
+    cli_kv_overrides: &[(String, toml::Value)],
 ) -> Option<HashMap<String, serde_json::Value>> {
-    config.active_profile.as_ref().map(|profile| {
-        HashMap::from([(
+    let mut overrides = cli_kv_overrides
+        .iter()
+        .map(|(key, value)| (key.clone(), toml_value_to_json(value)))
+        .collect::<HashMap<_, _>>();
+
+    if let Some(profile) = config.active_profile.as_ref() {
+        overrides.insert(
             "profile".to_string(),
             serde_json::Value::String(profile.clone()),
-        )])
-    })
+        );
+    }
+
+    (!overrides.is_empty()).then_some(overrides)
+}
+
+fn toml_value_to_json(value: &toml::Value) -> serde_json::Value {
+    serde_json::to_value(value).expect("toml values serialize to json")
 }
 
 fn sandbox_mode_from_policy(
@@ -1143,6 +1168,7 @@ fn thread_start_params_from_config(
     thread_params_mode: ThreadParamsMode,
     remote_cwd_override: Option<&std::path::Path>,
     session_start_source: Option<ThreadStartSource>,
+    cli_kv_overrides: &[(String, toml::Value)],
 ) -> ThreadStartParams {
     let permission_profile = permission_profile_override_from_config(config, thread_params_mode);
     let sandbox = permission_profile
@@ -1157,7 +1183,8 @@ fn thread_start_params_from_config(
         approvals_reviewer: approvals_reviewer_override_from_config(config),
         sandbox,
         permission_profile,
-        config: config_request_overrides_from_config(config),
+        // Daemon-backed sessions do not inherit this process's CLI arguments.
+        config: config_request_overrides_from_config(config, cli_kv_overrides),
         ephemeral: Some(config.ephemeral),
         session_start_source,
         persist_extended_history: true,
@@ -1170,6 +1197,7 @@ fn thread_resume_params_from_config(
     thread_id: ThreadId,
     thread_params_mode: ThreadParamsMode,
     remote_cwd_override: Option<&std::path::Path>,
+    cli_kv_overrides: &[(String, toml::Value)],
 ) -> ThreadResumeParams {
     let permission_profile = permission_profile_override_from_config(&config, thread_params_mode);
     let sandbox = permission_profile
@@ -1185,7 +1213,7 @@ fn thread_resume_params_from_config(
         approvals_reviewer: approvals_reviewer_override_from_config(&config),
         sandbox,
         permission_profile,
-        config: config_request_overrides_from_config(&config),
+        config: config_request_overrides_from_config(&config, cli_kv_overrides),
         persist_extended_history: true,
         ..ThreadResumeParams::default()
     }
@@ -1196,6 +1224,7 @@ fn thread_fork_params_from_config(
     thread_id: ThreadId,
     thread_params_mode: ThreadParamsMode,
     remote_cwd_override: Option<&std::path::Path>,
+    cli_kv_overrides: &[(String, toml::Value)],
 ) -> ThreadForkParams {
     let permission_profile = permission_profile_override_from_config(&config, thread_params_mode);
     let sandbox = permission_profile
@@ -1211,7 +1240,7 @@ fn thread_fork_params_from_config(
         approvals_reviewer: approvals_reviewer_override_from_config(&config),
         sandbox,
         permission_profile,
-        config: config_request_overrides_from_config(&config),
+        config: config_request_overrides_from_config(&config, cli_kv_overrides),
         base_instructions: config.base_instructions.clone(),
         developer_instructions: config.developer_instructions.clone(),
         ephemeral: config.ephemeral,
@@ -1495,6 +1524,7 @@ mod tests {
             ThreadParamsMode::Embedded,
             /*remote_cwd_override*/ None,
             /*session_start_source*/ None,
+            &[],
         );
 
         assert_eq!(params.cwd, Some(config.cwd.to_string_lossy().to_string()));
@@ -1516,9 +1546,39 @@ mod tests {
             ThreadParamsMode::Embedded,
             /*remote_cwd_override*/ None,
             Some(ThreadStartSource::Clear),
+            &[],
         );
 
         assert_eq!(params.session_start_source, Some(ThreadStartSource::Clear));
+    }
+
+    #[tokio::test]
+    async fn thread_start_params_forward_cli_config_overrides() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let mut config = build_config(&temp_dir).await;
+        config.active_profile = Some("work".to_string());
+        let cli_overrides = vec![(
+            "model_reasoning_summary".to_string(),
+            toml::Value::String("detailed".to_string()),
+        )];
+
+        let params = thread_start_params_from_config(
+            &config,
+            ThreadParamsMode::Remote,
+            /*remote_cwd_override*/ None,
+            /*session_start_source*/ None,
+            &cli_overrides,
+        );
+        let request_config = params.config.expect("request config");
+
+        assert_eq!(
+            request_config.get("model_reasoning_summary"),
+            Some(&serde_json::Value::String("detailed".to_string()))
+        );
+        assert_eq!(
+            request_config.get("profile"),
+            Some(&serde_json::Value::String("work".to_string()))
+        );
     }
 
     #[tokio::test]
@@ -1534,18 +1594,21 @@ mod tests {
             ThreadParamsMode::Remote,
             /*remote_cwd_override*/ None,
             /*session_start_source*/ None,
+            &[],
         );
         let resume = thread_resume_params_from_config(
             config.clone(),
             thread_id,
             ThreadParamsMode::Remote,
             /*remote_cwd_override*/ None,
+            &[],
         );
         let fork = thread_fork_params_from_config(
             config,
             thread_id,
             ThreadParamsMode::Remote,
             /*remote_cwd_override*/ None,
+            &[],
         );
 
         assert_eq!(start.cwd, None);
@@ -1576,18 +1639,21 @@ mod tests {
             ThreadParamsMode::Remote,
             Some(remote_cwd.as_path()),
             /*session_start_source*/ None,
+            &[],
         );
         let resume = thread_resume_params_from_config(
             config.clone(),
             thread_id,
             ThreadParamsMode::Remote,
             Some(remote_cwd.as_path()),
+            &[],
         );
         let fork = thread_fork_params_from_config(
             config,
             thread_id,
             ThreadParamsMode::Remote,
             Some(remote_cwd.as_path()),
+            &[],
         );
 
         assert_eq!(start.cwd.as_deref(), Some("repo/on/server"));
@@ -1666,6 +1732,7 @@ mod tests {
             thread_id,
             ThreadParamsMode::Embedded,
             /*remote_cwd_override*/ None,
+            &[],
         );
 
         assert_eq!(params.base_instructions.as_deref(), Some("Base override."));

@@ -11,6 +11,7 @@ use codex_login::ExternalAuthTokens;
 use codex_login::TokenData;
 use codex_login::auth::AgentIdentityAuth;
 use codex_login::auth::AgentIdentityAuthRecord;
+use codex_login::default_client::CODEX_BACKEND_CLIENT_VERSION;
 use codex_protocol::account::PlanType;
 use codex_protocol::openai_models::ModelsResponse;
 use pretty_assertions::assert_eq;
@@ -25,6 +26,14 @@ use tempfile::tempdir;
 
 #[path = "model_info_overrides_tests.rs"]
 mod model_info_overrides_tests;
+
+#[test]
+fn client_version_uses_codex_backend_compatibility_version() {
+    assert_eq!(
+        crate::client_version_to_whole(),
+        CODEX_BACKEND_CLIENT_VERSION
+    );
+}
 
 fn remote_model(slug: &str, display: &str, priority: i32) -> ModelInfo {
     remote_model_with_visibility(slug, display, priority, "list")

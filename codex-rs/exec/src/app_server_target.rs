@@ -7,6 +7,7 @@ use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_client::RemoteAppServerClient;
 use codex_app_server_client::RemoteAppServerConnectArgs;
+use codex_login::default_client::CODEX_BACKEND_CLIENT_VERSION;
 
 pub(crate) enum ExecAppServerTarget {
     InProcess(InProcessClientStartArgs),
@@ -43,7 +44,7 @@ pub(crate) fn exec_app_server_target(
                 .map(read_remote_auth_token_from_env_var)
                 .transpose()?,
             client_name: "codex_exec".to_string(),
-            client_version: env!("CARGO_PKG_VERSION").to_string(),
+            client_version: CODEX_BACKEND_CLIENT_VERSION.to_string(),
             experimental_api: true,
             opt_out_notification_methods: Vec::new(),
             channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,

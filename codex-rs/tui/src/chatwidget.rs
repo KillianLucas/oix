@@ -7689,6 +7689,7 @@ impl ChatWidget {
                             ProtocolThreadGoalStatus::BudgetLimited => {
                                 AppThreadGoalStatus::BudgetLimited
                             }
+                            ProtocolThreadGoalStatus::Blocked => AppThreadGoalStatus::Blocked,
                             ProtocolThreadGoalStatus::Complete => AppThreadGoalStatus::Complete,
                         },
                         token_budget: goal.token_budget,

@@ -48,7 +48,7 @@ pub enum ToolHandlerKind {
     DeepSeekTuiToolSearch,
     DeepSeekTuiUpdatePlan,
     DeepSeekTuiWriteFile,
-    FollowupTaskV2,
+    AssignTaskV2,
     Goal,
     KimiAgent,
     KimiAskUserQuestion,

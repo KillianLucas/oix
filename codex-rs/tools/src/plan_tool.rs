@@ -5,17 +5,29 @@ use std::collections::BTreeMap;
 
 pub fn create_update_plan_tool() -> ToolSpec {
     let plan_item_properties = BTreeMap::from([
-        ("step".to_string(), JsonSchema::string(/*description*/ None)),
         (
             "status".to_string(),
-            JsonSchema::string(Some("One of: pending, in_progress, completed".to_string())),
+            JsonSchema::string_enum(
+                vec![
+                    serde_json::json!("pending"),
+                    serde_json::json!("in_progress"),
+                    serde_json::json!("completed"),
+                ],
+                Some("Step status.".to_string()),
+            ),
+        ),
+        (
+            "step".to_string(),
+            JsonSchema::string(Some("Task step text.".to_string())),
         ),
     ]);
 
     let properties = BTreeMap::from([
         (
             "explanation".to_string(),
-            JsonSchema::string(/*description*/ None),
+            JsonSchema::string(Some(
+                "Optional explanation for this plan update.".to_string(),
+            )),
         ),
         (
             "plan".to_string(),

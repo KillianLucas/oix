@@ -30,13 +30,15 @@ fn spawn_agents_on_csv_tool_requires_csv_and_instruction() {
                     (
                         "id_column".to_string(),
                         JsonSchema::string(Some(
-                            "Optional column name to use as stable item id.".to_string(),
+                            "CSV column to use as stable item id. Omit to use row numbers."
+                                .to_string(),
                         )),
                     ),
                     (
                         "output_csv_path".to_string(),
                         JsonSchema::string(Some(
-                            "Optional output CSV path for exported results.".to_string(),
+                            "Output CSV path for exported results. Omit to create one next to the input CSV."
+                                .to_string(),
                         )),
                     ),
                     (
@@ -49,23 +51,31 @@ fn spawn_agents_on_csv_tool_requires_csv_and_instruction() {
                     (
                         "max_workers".to_string(),
                         JsonSchema::number(Some(
-                            "Alias for max_concurrency. Set to 1 to run sequentially.".to_string(),
+                            "Alias for max_concurrency. Defaults to 16 and is capped by config."
+                                .to_string(),
                         )),
                     ),
                     (
                         "max_runtime_seconds".to_string(),
                         JsonSchema::number(Some(
-                            "Maximum runtime per worker before it is failed. Defaults to 1800 seconds."
+                            "Maximum runtime per worker before failure. Defaults to 1800 seconds; config may set a different default."
                                 .to_string(),
                         )),
                     ),
                     (
                         "output_schema".to_string(),
-                        JsonSchema::object(
+                        {
+                            let mut schema = JsonSchema::object(
                             BTreeMap::new(),
                             /*required*/ None,
                             /*additional_properties*/ None,
-                        ),
+                            );
+                            schema.description = Some(
+                                "JSON Schema for each worker result. Omit to accept any result object."
+                                    .to_string(),
+                            );
+                            schema
+                        },
                     ),
                 ]), Some(vec!["csv_path".to_string(), "instruction".to_string()]), Some(false.into())),
             output_schema: None,

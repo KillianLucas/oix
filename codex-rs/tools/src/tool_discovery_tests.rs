@@ -35,7 +35,7 @@ fn create_tool_search_tool_deduplicates_and_renders_enabled_sources() {
                     (
                         "limit".to_string(),
                         JsonSchema::number(Some(
-                                "Maximum number of tools to return (defaults to 8)."
+                                "Maximum number of tools to return. Defaults to 8."
                                     .to_string(),
                             ),),
                     ),

@@ -6,8 +6,9 @@ use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
 
-const SPAWN_AGENT_INHERITED_MODEL_GUIDANCE: &str = "Spawned agents inherit your current model by default. Omit `model` to use that preferred default; set `model` only when an explicit override is needed.";
-const SPAWN_AGENT_MODEL_OVERRIDE_DESCRIPTION: &str = "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one.";
+const SPAWN_AGENT_INHERITED_MODEL_GUIDANCE: &str = "Spawned agents inherit your current model by default. If provided, `model` specifies the model to use for the spawned agent.";
+const SPAWN_AGENT_MODEL_OVERRIDE_DESCRIPTION: &str =
+    "Model override for the new agent. Omit to inherit the parent model.";
 
 #[derive(Debug, Clone)]
 pub struct SpawnAgentToolOptions<'a> {
@@ -139,7 +140,7 @@ pub fn create_send_message_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "send_message".to_string(),
-        description: "Send a string message to an existing agent without triggering a new turn."
+        description: "Send a message to an existing agent. The message will be delivered promptly. Does not trigger a new turn."
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -152,7 +153,7 @@ pub fn create_send_message_tool() -> ToolSpec {
     })
 }
 
-pub fn create_followup_task_tool() -> ToolSpec {
+pub fn create_assign_task_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
             "target".to_string(),
@@ -166,18 +167,11 @@ pub fn create_followup_task_tool() -> ToolSpec {
                 "Message text to send to the target agent.".to_string(),
             )),
         ),
-        (
-            "interrupt".to_string(),
-            JsonSchema::boolean(Some(
-                "When true, stop the agent's current task and handle this immediately. When false (default), queue this message; if the target is already running, it starts the target's next turn after the current turn completes."
-                    .to_string(),
-            )),
-        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
-        name: "followup_task".to_string(),
-        description: "Send a string message to an existing non-root agent and trigger a turn in the target. Use interrupt=true to redirect work immediately. If interrupt=false and the target's turn has not completed, the message is queued and starts the target's next turn after the current turn completes."
+        name: "assign_task".to_string(),
+        description: "Send a message to an existing non-root target agent and trigger a turn in that target. If the target is currently mid-turn, the message is queued and will be used to start the target's next turn, after the current turn completes."
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -232,7 +226,7 @@ pub fn create_list_agents_tool() -> ToolSpec {
     let properties = BTreeMap::from([(
         "path_prefix".to_string(),
         JsonSchema::string(Some(
-            "Optional task-path prefix (not ending with trailing slash). Accepts the same relative or absolute task-path syntax."
+            "Task-path prefix filter without a trailing slash. Omit to list all live agents."
                 .to_string(),
         )),
     )]);
@@ -538,7 +532,14 @@ fn spawn_agent_common_properties_v1(agent_type_description: &str) -> BTreeMap<St
         (
             "reasoning_effort".to_string(),
             JsonSchema::string(Some(
-                "Optional reasoning effort override for the new agent. Replaces the inherited reasoning effort."
+                "Reasoning effort override for the new agent. Omit to inherit the parent effort."
+                    .to_string(),
+            )),
+        ),
+        (
+            "service_tier".to_string(),
+            JsonSchema::string(Some(
+                "Service tier override for the new agent. Omit unless explicitly requested."
                     .to_string(),
             )),
         ),
@@ -571,7 +572,14 @@ fn spawn_agent_common_properties_v2(agent_type_description: &str) -> BTreeMap<St
         (
             "reasoning_effort".to_string(),
             JsonSchema::string(Some(
-                "Optional reasoning effort override for the new agent. Replaces the inherited reasoning effort."
+                "Reasoning effort override for the new agent. Omit to inherit the parent effort."
+                    .to_string(),
+            )),
+        ),
+        (
+            "service_tier".to_string(),
+            JsonSchema::string(Some(
+                "Service tier override for the new agent. Omit unless explicitly requested."
                     .to_string(),
             )),
         ),
@@ -582,6 +590,7 @@ fn hide_spawn_agent_metadata_options(properties: &mut BTreeMap<String, JsonSchem
     properties.remove("agent_type");
     properties.remove("model");
     properties.remove("reasoning_effort");
+    properties.remove("service_tier");
 }
 
 fn spawn_agent_tool_description(
@@ -700,6 +709,25 @@ fn spawn_agent_models_description(models: &[ModelPreset]) -> String {
         return "No picker-visible model overrides are currently loaded.".to_string();
     }
 
+    let official_order = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"];
+    let official_descriptions = official_order
+        .iter()
+        .filter_map(|slug| visible_models.iter().find(|model| model.model == *slug))
+        .map(|model| match model.model.as_str() {
+            "gpt-5.5" => "- `gpt-5.5`: Frontier model for complex coding, research, and real-world work. Reasoning efforts: low, medium (default), high, xhigh. Service tiers: priority.".to_string(),
+            "gpt-5.4" => "- `gpt-5.4`: Strong model for everyday coding. Reasoning efforts: low, medium (default), high, xhigh. Service tiers: priority.".to_string(),
+            "gpt-5.4-mini" => "- `gpt-5.4-mini`: Small, fast, and cost-efficient model for simpler coding tasks. Reasoning efforts: low, medium (default), high, xhigh.".to_string(),
+            "gpt-5.3-codex-spark" => "- `gpt-5.3-codex-spark`: Ultra-fast coding model. Reasoning efforts: low, medium, high (default), xhigh.".to_string(),
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    if !official_descriptions.is_empty() {
+        return format!(
+            "Available model overrides (optional; inherited parent model is preferred):\n{}",
+            official_descriptions.join("\n")
+        );
+    }
+
     let model_descriptions = visible_models
         .into_iter()
         .map(|model| {
@@ -757,7 +785,7 @@ fn wait_agent_tool_parameters_v2(options: WaitAgentTimeoutOptions) -> JsonSchema
     let properties = BTreeMap::from([(
         "timeout_ms".to_string(),
         JsonSchema::number(Some(format!(
-            "Optional timeout in milliseconds. Defaults to {}, min {}, max {}.",
+            "Timeout in milliseconds. Defaults to {}, min {}, max {}.",
             options.default_timeout_ms, options.min_timeout_ms, options.max_timeout_ms,
         ))),
     )]);

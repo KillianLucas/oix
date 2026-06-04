@@ -13,6 +13,7 @@ pub enum ThreadGoalStatus {
     Active,
     Paused,
     BudgetLimited,
+    Blocked,
     Complete,
 }
 
@@ -22,6 +23,7 @@ impl ThreadGoalStatus {
             Self::Active => "active",
             Self::Paused => "paused",
             Self::BudgetLimited => "budget_limited",
+            Self::Blocked => "blocked",
             Self::Complete => "complete",
         }
     }
@@ -31,7 +33,7 @@ impl ThreadGoalStatus {
     }
 
     pub fn is_terminal(self) -> bool {
-        matches!(self, Self::BudgetLimited | Self::Complete)
+        matches!(self, Self::BudgetLimited | Self::Blocked | Self::Complete)
     }
 }
 
@@ -43,6 +45,7 @@ impl TryFrom<&str> for ThreadGoalStatus {
             "active" => Ok(Self::Active),
             "paused" => Ok(Self::Paused),
             "budget_limited" => Ok(Self::BudgetLimited),
+            "blocked" => Ok(Self::Blocked),
             "complete" => Ok(Self::Complete),
             other => Err(anyhow!("unknown thread goal status `{other}`")),
         }

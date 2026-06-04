@@ -19,12 +19,15 @@ pub fn create_spawn_agents_on_csv_tool() -> ToolSpec {
         (
             "id_column".to_string(),
             JsonSchema::string(Some(
-                "Optional column name to use as stable item id.".to_string(),
+                "CSV column to use as stable item id. Omit to use row numbers.".to_string(),
             )),
         ),
         (
             "output_csv_path".to_string(),
-            JsonSchema::string(Some("Optional output CSV path for exported results.".to_string())),
+            JsonSchema::string(Some(
+                "Output CSV path for exported results. Omit to create one next to the input CSV."
+                    .to_string(),
+            )),
         ),
         (
             "max_concurrency".to_string(),
@@ -36,19 +39,25 @@ pub fn create_spawn_agents_on_csv_tool() -> ToolSpec {
         (
             "max_workers".to_string(),
             JsonSchema::number(Some(
-                "Alias for max_concurrency. Set to 1 to run sequentially.".to_string(),
+                "Alias for max_concurrency. Defaults to 16 and is capped by config.".to_string(),
             )),
         ),
         (
             "max_runtime_seconds".to_string(),
             JsonSchema::number(Some(
-                "Maximum runtime per worker before it is failed. Defaults to 1800 seconds."
+                "Maximum runtime per worker before failure. Defaults to 1800 seconds; config may set a different default."
                     .to_string(),
             )),
         ),
         (
             "output_schema".to_string(),
-            JsonSchema::object(BTreeMap::new(), /*required*/ None, /*additional_properties*/ None),
+            {
+                let mut schema =
+                    JsonSchema::object(BTreeMap::new(), /*required*/ None, /*additional_properties*/ None);
+                schema.description =
+                    Some("JSON Schema for each worker result. Omit to accept any result object.".to_string());
+                schema
+            },
         ),
     ]);
 

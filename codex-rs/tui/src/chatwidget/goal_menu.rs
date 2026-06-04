@@ -46,9 +46,9 @@ fn goal_summary_lines(goal: &AppThreadGoal) -> Vec<Line<'static>> {
     let command_hint = match goal.status {
         AppThreadGoalStatus::Active => "Commands: /goal pause, /goal clear",
         AppThreadGoalStatus::Paused => "Commands: /goal unpause, /goal clear",
-        AppThreadGoalStatus::BudgetLimited | AppThreadGoalStatus::Complete => {
-            "Commands: /goal clear"
-        }
+        AppThreadGoalStatus::BudgetLimited
+        | AppThreadGoalStatus::Blocked
+        | AppThreadGoalStatus::Complete => "Commands: /goal clear",
     };
     lines.push(Line::default());
     lines.push(Line::from(command_hint.dim()));
@@ -60,6 +60,7 @@ fn goal_status_label(status: AppThreadGoalStatus) -> &'static str {
         AppThreadGoalStatus::Active => "active",
         AppThreadGoalStatus::Paused => "paused",
         AppThreadGoalStatus::BudgetLimited => "limited by budget",
+        AppThreadGoalStatus::Blocked => "blocked",
         AppThreadGoalStatus::Complete => "complete",
     }
 }

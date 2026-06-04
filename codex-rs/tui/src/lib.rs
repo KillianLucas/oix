@@ -447,7 +447,7 @@ async fn connect_remote_app_server(
         websocket_url,
         auth_token,
         client_name: "codex-tui".to_string(),
-        client_version: env!("CARGO_PKG_VERSION").to_string(),
+        client_version: codex_models_manager::client_version_to_whole(),
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
@@ -562,7 +562,7 @@ where
         session_source: codex_protocol::protocol::SessionSource::Cli,
         enable_codex_api_key_env: false,
         client_name: "codex-tui".to_string(),
-        client_version: env!("CARGO_PKG_VERSION").to_string(),
+        client_version: codex_models_manager::client_version_to_whole(),
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
@@ -1194,7 +1194,8 @@ async fn run_ratatui_app(
         .await
         {
             Ok(app_server) => AppServerSession::new(app_server)
-                .with_remote_cwd_override(remote_cwd_override.clone()),
+                .with_remote_cwd_override(remote_cwd_override.clone())
+                .with_cli_kv_overrides(cli_kv_overrides.clone()),
             Err(err) => {
                 terminal_restore_guard.restore_silently();
                 session_log::log_session_end();
@@ -1527,7 +1528,8 @@ async fn run_ratatui_app(
         .await
         {
             Ok(app_server) => AppServerSession::new(app_server)
-                .with_remote_cwd_override(remote_cwd_override.clone()),
+                .with_remote_cwd_override(remote_cwd_override.clone())
+                .with_cli_kv_overrides(cli_kv_overrides.clone()),
             Err(err) => {
                 terminal_restore_guard.restore_silently();
                 session_log::log_session_end();

@@ -102,6 +102,9 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
         create_view_image_tool(ViewImageToolOptions {
             can_request_original_image_detail: config.can_request_original_image_detail,
         }),
+        create_list_mcp_resources_tool(),
+        create_list_mcp_resource_templates_tool(),
+        create_read_mcp_resource_tool(),
     ] {
         expected.insert(spec.name().to_string(), spec);
     }
@@ -270,7 +273,7 @@ fn test_build_specs_multi_agent_v2_uses_task_names_and_hides_resume() {
         &[
             "spawn_agent",
             "send_message",
-            "followup_task",
+            "assign_task",
             "wait_agent",
             "close_agent",
             "list_agents",
@@ -321,19 +324,20 @@ fn test_build_specs_multi_agent_v2_uses_task_names_and_hides_resume() {
         Some(&vec!["target".to_string(), "message".to_string()])
     );
 
-    let followup_task = find_tool(&tools, "followup_task");
+    let assign_task = find_tool(&tools, "assign_task");
     let ToolSpec::Function(ResponsesApiTool {
         parameters,
         output_schema,
         ..
-    }) = &followup_task.spec
+    }) = &assign_task.spec
     else {
-        panic!("followup_task should be a function tool");
+        panic!("assign_task should be a function tool");
     };
     assert_eq!(output_schema, &None);
     let (properties, required) = expect_object_schema(parameters);
     assert!(properties.contains_key("target"));
     assert!(properties.contains_key("message"));
+    assert!(!properties.contains_key("interrupt"));
     assert!(!properties.contains_key("items"));
     assert_eq!(
         required,
@@ -483,8 +487,8 @@ fn view_image_tool_includes_detail_with_original_detail_support() {
             .get("detail")
             .expect("view_image detail should include a description"),
     );
-    assert!(description.contains("only supported value is `original`"));
-    assert!(description.contains("omit this field for default resized behavior"));
+    assert!(description.contains("Defaults to `high`"));
+    assert!(description.contains("use `original`"));
 }
 
 #[test]
@@ -936,7 +940,7 @@ fn web_search_tool_type_text_and_image_sets_search_content_types() {
 }
 
 #[test]
-fn mcp_resource_tools_are_hidden_without_mcp_servers() {
+fn mcp_resource_tools_are_visible_without_mcp_servers() {
     let model_info = model_info();
     let features = Features::with_defaults();
     let available_models = Vec::new();
@@ -957,12 +961,13 @@ fn mcp_resource_tools_are_hidden_without_mcp_servers() {
         &[],
     );
 
-    assert!(
-        !tools.iter().any(|tool| matches!(
-            tool.spec.name(),
-            "list_mcp_resources" | "list_mcp_resource_templates" | "read_mcp_resource"
-        )),
-        "MCP resource tools should be omitted when no MCP servers are configured"
+    assert_contains_tool_names(
+        &tools,
+        &[
+            "list_mcp_resources",
+            "list_mcp_resource_templates",
+            "read_mcp_resource",
+        ],
     );
 }
 
@@ -2105,7 +2110,7 @@ fn code_mode_augments_builtin_tool_descriptions_with_typed_sample() {
 
     assert_eq!(
         description,
-        "View a local image from the filesystem (only use if given a full filepath by the user, and the image isn't already attached to the thread context within <image ...> tags).\n\nexec tool declaration:\n```ts\ndeclare const tools: { view_image(args: {\n  // Local filesystem path to an image file\n  path: string;\n}): Promise<{\n  // Image detail hint returned by view_image. Returns `original` when original resolution is preserved, otherwise `null`.\n  detail: string | null;\n  // Data URL for the loaded image.\n  image_url: string;\n}>; };\n```"
+        "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.\n\nexec tool declaration:\n```ts\ndeclare const tools: { view_image(args: {\n  // Local filesystem path to an image file.\n  path: string;\n}): Promise<{\n  // Image detail hint returned by view_image. Returns `original` when original resolution is preserved, otherwise `null`.\n  detail: string | null;\n  // Data URL for the loaded image.\n  image_url: string;\n}>; };\n```"
     );
 }
 

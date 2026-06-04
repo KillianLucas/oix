@@ -155,7 +155,7 @@ fn send_message_tool_requires_message_and_has_no_output_schema() {
     assert!(!properties.contains_key("items"));
     assert_eq!(
         description,
-        "Send a string message to an existing agent without triggering a new turn."
+        "Send a message to an existing agent. The message will be delivered promptly. Does not trigger a new turn."
     );
     assert_eq!(
         properties
@@ -171,15 +171,15 @@ fn send_message_tool_requires_message_and_has_no_output_schema() {
 }
 
 #[test]
-fn followup_task_tool_requires_message_and_has_no_output_schema() {
+fn assign_task_tool_requires_message_and_has_no_output_schema() {
     let ToolSpec::Function(ResponsesApiTool {
         description,
         parameters,
         output_schema,
         ..
-    }) = create_followup_task_tool()
+    }) = create_assign_task_tool()
     else {
-        panic!("followup_task should be a function tool");
+        panic!("assign_task should be a function tool");
     };
     assert_eq!(
         parameters.schema_type,
@@ -188,25 +188,14 @@ fn followup_task_tool_requires_message_and_has_no_output_schema() {
     let properties = parameters
         .properties
         .as_ref()
-        .expect("followup_task should use object params");
+        .expect("assign_task should use object params");
     assert!(properties.contains_key("target"));
     assert!(properties.contains_key("message"));
-    assert!(properties.contains_key("interrupt"));
+    assert!(!properties.contains_key("interrupt"));
     assert!(!properties.contains_key("items"));
     assert!(description.contains(
-        "Send a string message to an existing non-root agent and trigger a turn in the target."
+        "Send a message to an existing non-root target agent and trigger a turn in that target."
     ));
-    assert!(description.contains(
-        "If interrupt=false and the target's turn has not completed, the message is queued"
-    ));
-    assert_eq!(
-        properties
-            .get("interrupt")
-            .and_then(|schema| schema.description.as_deref()),
-        Some(
-            "When true, stop the agent's current task and handle this immediately. When false (default), queue this message; if the target is already running, it starts the target's next turn after the current turn completes."
-        )
-    );
     assert_eq!(
         parameters.required.as_ref(),
         Some(&vec!["target".to_string(), "message".to_string()])
@@ -246,7 +235,7 @@ fn wait_agent_tool_v2_uses_timeout_only_summary_output() {
         properties
             .get("timeout_ms")
             .and_then(|schema| schema.description.as_deref()),
-        Some("Optional timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.")
+        Some("Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.")
     );
     assert_eq!(parameters.required.as_ref(), None);
     assert_eq!(
@@ -278,9 +267,7 @@ fn list_agents_tool_includes_path_prefix_and_agent_fields() {
         properties
             .get("path_prefix")
             .and_then(|schema| schema.description.as_deref()),
-        Some(
-            "Optional task-path prefix (not ending with trailing slash). Accepts the same relative or absolute task-path syntax."
-        )
+        Some("Task-path prefix filter without a trailing slash. Omit to list all live agents.")
     );
     assert_eq!(
         output_schema.expect("list_agents output schema")["properties"]["agents"]["items"]["required"],

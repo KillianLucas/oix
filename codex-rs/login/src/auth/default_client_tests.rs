@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 fn test_get_codex_user_agent() {
     let user_agent = get_codex_user_agent();
     let originator = originator().value;
-    let prefix = format!("{originator}/");
+    let prefix = format!("{originator}/{CODEX_BACKEND_CLIENT_VERSION}");
     assert!(user_agent.starts_with(&prefix));
 }
 

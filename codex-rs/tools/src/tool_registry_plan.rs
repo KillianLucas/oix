@@ -23,6 +23,7 @@ use crate::collect_tool_search_source_infos;
 use crate::collect_tool_suggest_entries;
 use crate::create_apply_patch_freeform_tool;
 use crate::create_apply_patch_json_tool;
+use crate::create_assign_task_tool;
 use crate::create_claude_code_agent_tool;
 use crate::create_claude_code_ask_user_question_tool;
 use crate::create_claude_code_bash_tool;
@@ -41,7 +42,6 @@ use crate::create_code_mode_tool;
 use crate::create_create_goal_tool;
 use crate::create_deepseek_tui_tools;
 use crate::create_exec_command_tool;
-use crate::create_followup_task_tool;
 use crate::create_get_goal_tool;
 use crate::create_image_generation_tool;
 use crate::create_kimi_cli_agent_tool;
@@ -653,26 +653,24 @@ pub fn build_tool_registry_plan(
         plan.register_handler("shell_command", ToolHandlerKind::ShellCommand);
     }
 
-    if params.mcp_tools.is_some() {
-        plan.push_spec(
-            create_list_mcp_resources_tool(),
-            /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
-        );
-        plan.push_spec(
-            create_list_mcp_resource_templates_tool(),
-            /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
-        );
-        plan.push_spec(
-            create_read_mcp_resource_tool(),
-            /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
-        );
-        plan.register_handler("list_mcp_resources", ToolHandlerKind::McpResource);
-        plan.register_handler("list_mcp_resource_templates", ToolHandlerKind::McpResource);
-        plan.register_handler("read_mcp_resource", ToolHandlerKind::McpResource);
-    }
+    plan.push_spec(
+        create_list_mcp_resources_tool(),
+        /*supports_parallel_tool_calls*/ true,
+        config.code_mode_enabled,
+    );
+    plan.push_spec(
+        create_list_mcp_resource_templates_tool(),
+        /*supports_parallel_tool_calls*/ true,
+        config.code_mode_enabled,
+    );
+    plan.push_spec(
+        create_read_mcp_resource_tool(),
+        /*supports_parallel_tool_calls*/ true,
+        config.code_mode_enabled,
+    );
+    plan.register_handler("list_mcp_resources", ToolHandlerKind::McpResource);
+    plan.register_handler("list_mcp_resource_templates", ToolHandlerKind::McpResource);
+    plan.register_handler("read_mcp_resource", ToolHandlerKind::McpResource);
 
     plan.push_spec(
         create_update_plan_tool(),
@@ -728,9 +726,7 @@ pub fn build_tool_registry_plan(
         .filter(|tool| tool.defer_loading)
         .collect::<Vec<_>>();
 
-    if config.search_tool
-        && (params.deferred_mcp_tools.is_some() || !deferred_dynamic_tools.is_empty())
-    {
+    if config.search_tool {
         let mut search_source_infos = params
             .deferred_mcp_tools
             .map(|deferred_mcp_tools| {
@@ -879,7 +875,7 @@ pub fn build_tool_registry_plan(
                 config.code_mode_enabled,
             );
             plan.push_spec(
-                create_followup_task_tool(),
+                create_assign_task_tool(),
                 /*supports_parallel_tool_calls*/ false,
                 config.code_mode_enabled,
             );
@@ -900,7 +896,7 @@ pub fn build_tool_registry_plan(
             );
             plan.register_handler("spawn_agent", ToolHandlerKind::SpawnAgentV2);
             plan.register_handler("send_message", ToolHandlerKind::SendMessageV2);
-            plan.register_handler("followup_task", ToolHandlerKind::FollowupTaskV2);
+            plan.register_handler("assign_task", ToolHandlerKind::AssignTaskV2);
             plan.register_handler("wait_agent", ToolHandlerKind::WaitAgentV2);
             plan.register_handler("close_agent", ToolHandlerKind::CloseAgentV2);
             plan.register_handler("list_agents", ToolHandlerKind::ListAgentsV2);

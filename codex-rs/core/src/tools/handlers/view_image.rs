@@ -73,16 +73,14 @@ impl ToolHandler for ViewImageHandler {
         };
 
         let args: ViewImageArgs = parse_arguments(&arguments)?;
-        // `view_image` accepts only its documented detail values: omit
-        // `detail` for the default path or set it to `original`.
-        // Other string values remain invalid rather than being silently
-        // reinterpreted.
+        // `high` is the default detail level; accepting it keeps the handler
+        // aligned with the model-visible schema.
         let detail = match args.detail.as_deref() {
-            None => None,
+            None | Some("high") => None,
             Some("original") => Some(ViewImageDetail::Original),
             Some(detail) => {
                 return Err(FunctionCallError::RespondToModel(format!(
-                    "view_image.detail only supports `original`; omit `detail` for default resized behavior, got `{detail}`"
+                    "view_image.detail supports `high` or `original`, got `{detail}`"
                 )));
             }
         };

@@ -3770,6 +3770,7 @@ v2_enum_from_core! {
         Active,
         Paused,
         BudgetLimited,
+        Blocked,
         Complete,
     }
 }

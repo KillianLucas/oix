@@ -8,6 +8,7 @@ pub mod provider_catalog_models;
 pub mod test_support;
 
 pub use codex_app_server_protocol::AuthMode;
+use codex_login::default_client::CODEX_BACKEND_CLIENT_VERSION;
 pub use config::ModelsManagerConfig;
 
 /// Load the bundled model catalog shipped with `codex-models-manager`.
@@ -16,12 +17,8 @@ pub fn bundled_models_response()
     serde_json::from_str(include_str!("../models.json"))
 }
 
-/// Convert the client version string to a whole version string (e.g. "1.2.3-alpha.4" -> "1.2.3").
+/// Version sent to `/models` for backend compatibility checks.
 pub fn client_version_to_whole() -> String {
-    format!(
-        "{}.{}.{}",
-        env!("CARGO_PKG_VERSION_MAJOR"),
-        env!("CARGO_PKG_VERSION_MINOR"),
-        env!("CARGO_PKG_VERSION_PATCH")
-    )
+    // OpenAI's model catalog is keyed to Codex's backend compatibility version.
+    CODEX_BACKEND_CLIENT_VERSION.to_string()
 }

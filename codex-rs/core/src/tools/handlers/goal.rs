@@ -1,8 +1,8 @@
 //! Built-in model tool handlers for persisted thread goals.
 //!
 //! The public tool contract intentionally splits goal creation from completion:
-//! `create_goal` starts an active objective, while `update_goal` can only mark
-//! the existing goal complete.
+//! `create_goal` starts an active objective, while `update_goal` marks final
+//! goal states that the model is allowed to set.
 
 use crate::function_tool::FunctionCallError;
 use crate::goals::CreateGoalRequest;
@@ -159,28 +159,34 @@ async fn handle_update_goal(
     arguments: &str,
 ) -> Result<FunctionToolOutput, FunctionCallError> {
     let args: UpdateGoalArgs = parse_arguments(arguments)?;
-    if args.status != ThreadGoalStatus::Complete {
-        return Err(FunctionCallError::RespondToModel(
-            "update_goal can only mark the existing goal complete; pause, resume, and budget-limited status changes are controlled by the user or system"
-                .to_string(),
-        ));
-    }
-    session
-        .goal_runtime_apply(GoalRuntimeEvent::ToolCompletedGoal { turn_context })
-        .await
-        .map_err(|err| FunctionCallError::RespondToModel(format_goal_error(err)))?;
+    let report_mode = match args.status {
+        ThreadGoalStatus::Complete => {
+            session
+                .goal_runtime_apply(GoalRuntimeEvent::ToolCompletedGoal { turn_context })
+                .await
+                .map_err(|err| FunctionCallError::RespondToModel(format_goal_error(err)))?;
+            CompletionBudgetReport::Include
+        }
+        ThreadGoalStatus::Blocked => CompletionBudgetReport::Omit,
+        ThreadGoalStatus::Active | ThreadGoalStatus::Paused | ThreadGoalStatus::BudgetLimited => {
+            return Err(FunctionCallError::RespondToModel(
+                "update_goal can only mark the existing goal complete or blocked; pause, resume, and budget-limited status changes are controlled by the user or system"
+                    .to_string(),
+            ));
+        }
+    };
     let goal = session
         .set_thread_goal(
             turn_context,
             SetGoalRequest {
                 objective: None,
-                status: Some(ThreadGoalStatus::Complete),
+                status: Some(args.status),
                 token_budget: None,
             },
         )
         .await
         .map_err(|err| FunctionCallError::RespondToModel(format_goal_error(err)))?;
-    goal_response(Some(goal), CompletionBudgetReport::Include)
+    goal_response(Some(goal), report_mode)
 }
 
 fn format_goal_error(err: anyhow::Error) -> String {
