@@ -618,8 +618,9 @@ fn cap_attachment_buffer(buffer: Vec<u8>, max: usize) -> Vec<u8> {
     const MARKER_RESERVE: usize = 128;
     let keep = max.saturating_sub(MARKER_RESERVE);
     let omitted = buffer.len() - keep;
-    let marker =
-        format!("[codex-feedback] truncated: omitted first {omitted} bytes, kept last {keep} bytes\n");
+    let marker = format!(
+        "[codex-feedback] truncated: omitted first {omitted} bytes, kept last {keep} bytes\n"
+    );
     let mut out = marker.into_bytes();
     out.extend_from_slice(&buffer[buffer.len() - keep..]);
     out
@@ -819,7 +820,11 @@ mod tests {
         assert_eq!(attachments.len(), 1);
         assert_eq!(attachments[0].filename, "codex-logs.log");
         assert!(attachments[0].buffer.len() <= MAX_ATTACHMENT_BYTES);
-        assert!(attachments[0].buffer.starts_with(b"[codex-feedback] truncated"));
+        assert!(
+            attachments[0]
+                .buffer
+                .starts_with(b"[codex-feedback] truncated")
+        );
     }
 
     #[test]

@@ -8726,6 +8726,7 @@ impl CodexMessageProcessor {
         let mut seen_attachment_paths = HashSet::new();
         if include_logs {
             for feedback_thread_id in &feedback_thread_ids {
+                self.materialize_thread_rollout(*feedback_thread_id).await;
                 let Some(rollout_path) = self
                     .resolve_rollout_path(*feedback_thread_id, state_db_ctx.as_ref())
                     .await
@@ -8876,6 +8877,20 @@ impl CodexMessageProcessor {
                 warn!("failed to resolve rollout path for thread_id={conversation_id}: {err}");
                 None
             })
+    }
+
+    /// Best-effort: force a live thread's rollout file onto disk before a feedback
+    /// upload reads it. Newly started sessions defer rollout file creation until the
+    /// first persist, so without this an in-progress thread's transcript would be
+    /// silently missing from the uploaded logs.
+    async fn materialize_thread_rollout(&self, thread_id: ThreadId) {
+        let Ok(thread) = self.thread_manager.get_thread(thread_id).await else {
+            return;
+        };
+        thread.ensure_rollout_materialized().await;
+        if let Err(err) = thread.flush_rollout().await {
+            warn!("failed to flush rollout for thread_id={thread_id}: {err}");
+        }
     }
 }
 
