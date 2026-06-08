@@ -88,6 +88,7 @@ jobs:
 
           bazel_wrapper_args=(
             --print-failed-test-logs
+            --use-node-test-env
           )
           bazel_test_args=(
             test

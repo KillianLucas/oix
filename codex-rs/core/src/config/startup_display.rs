@@ -88,6 +88,8 @@ pub(super) fn build_startup_display_config(
         codex_self_exe,
         codex_linux_sandbox_exe,
         main_execve_wrapper_exe,
+        js_repl_node_path: js_repl_node_path_override,
+        js_repl_node_module_dirs: js_repl_node_module_dirs_override,
         zsh_path,
         base_instructions,
         developer_instructions,
@@ -218,6 +220,22 @@ pub(super) fn build_startup_display_config(
             )
             .map(ToOwned::to_owned)
         });
+    let js_repl_node_path = js_repl_node_path_override
+        .or(config_profile.js_repl_node_path.clone().map(Into::into))
+        .or(cfg.js_repl_node_path.clone().map(Into::into));
+    let js_repl_node_module_dirs = js_repl_node_module_dirs_override
+        .or_else(|| {
+            config_profile
+                .js_repl_node_module_dirs
+                .clone()
+                .map(|dirs| dirs.into_iter().map(Into::into).collect::<Vec<PathBuf>>())
+        })
+        .or_else(|| {
+            cfg.js_repl_node_module_dirs
+                .clone()
+                .map(|dirs| dirs.into_iter().map(Into::into).collect::<Vec<PathBuf>>())
+        })
+        .unwrap_or_default();
 
     Ok(Config {
         config_layer_stack: Default::default(),
@@ -395,6 +413,8 @@ pub(super) fn build_startup_display_config(
         ),
         forced_chatgpt_workspace_id: cfg.forced_chatgpt_workspace_id.clone(),
         forced_login_method: cfg.forced_login_method,
+        js_repl_node_path,
+        js_repl_node_module_dirs,
         include_apply_patch_tool: features.enabled(Feature::ApplyPatchFreeform),
         web_search_mode: Constrained::allow_any(
             resolve_web_search_mode(&cfg, &config_profile, &features)

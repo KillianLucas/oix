@@ -123,8 +123,12 @@ fn lock_if_runtime<K, V>(m: &Mutex<LruCache<K, V>>) -> Option<MutexGuard<'_, Lru
 where
     K: Eq + Hash,
 {
-    tokio::runtime::Handle::try_current().ok()?;
-    Some(tokio::task::block_in_place(|| m.blocking_lock()))
+    let handle = tokio::runtime::Handle::try_current().ok()?;
+    if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+        return Some(tokio::task::block_in_place(|| m.blocking_lock()));
+    }
+
+    m.try_lock().ok()
 }
 
 /// Computes the SHA-1 digest of `bytes`.
@@ -167,6 +171,15 @@ mod tests {
         assert!(cache.get(&"b").is_none());
         assert_eq!(cache.get(&"a"), Some(1));
         assert_eq!(cache.get(&"c"), Some(3));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stores_values_on_current_thread_runtime() {
+        let cache = BlockingLruCache::new(NonZeroUsize::new(2).expect("capacity"));
+
+        assert_eq!(cache.get_or_insert_with("first", || 1), 1);
+        assert_eq!(cache.get_or_insert_with("first", || 2), 1);
+        assert_eq!(cache.get(&"first"), Some(1));
     }
 
     #[test]

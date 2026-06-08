@@ -28,6 +28,7 @@ pub(crate) struct Session {
     pub(crate) goal_runtime: GoalRuntimeState,
     pub(crate) guardian_review_session: GuardianReviewSessionManager,
     pub(crate) services: SessionServices,
+    pub(super) js_repl: Arc<JsReplHandle>,
     pub(super) next_internal_sub_id: AtomicU64,
 }
 
@@ -799,12 +800,18 @@ impl Session {
                     Harness::from_config_name(config.harness.as_deref()),
                     config.harness_guidance,
                 ),
-                code_mode_service: crate::tools::code_mode::CodeModeService::new(),
+                code_mode_service: crate::tools::code_mode::CodeModeService::new(
+                    config.js_repl_node_path.clone(),
+                ),
                 environment_manager,
             };
             services
                 .model_client
                 .set_window_generation(window_generation);
+            let js_repl = Arc::new(JsReplHandle::with_node_path(
+                config.js_repl_node_path.clone(),
+                config.js_repl_node_module_dirs.clone(),
+            ));
             let (out_of_band_elicitation_paused, _out_of_band_elicitation_paused_rx) =
                 watch::channel(false);
 
@@ -826,6 +833,7 @@ impl Session {
                 goal_runtime: GoalRuntimeState::new(),
                 guardian_review_session: GuardianReviewSessionManager::default(),
                 services,
+                js_repl,
                 next_internal_sub_id: AtomicU64::new(0),
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {

@@ -3390,9 +3390,15 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             Harness::Native,
             /*harness_guidance*/ true,
         ),
-        code_mode_service: crate::tools::code_mode::CodeModeService::new(),
+        code_mode_service: crate::tools::code_mode::CodeModeService::new(
+            config.js_repl_node_path.clone(),
+        ),
         environment_manager: Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
     };
+    let js_repl = Arc::new(JsReplHandle::with_node_path(
+        config.js_repl_node_path.clone(),
+        config.js_repl_node_module_dirs.clone(),
+    ));
 
     let plugin_outcome = services
         .plugins_manager
@@ -3426,6 +3432,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         turn_environments,
         session_configuration.cwd.clone(),
         "turn_id".to_string(),
+        Arc::clone(&js_repl),
         skills_outcome,
         /*goal_tools_supported*/ true,
     );
@@ -3448,6 +3455,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         goal_runtime: crate::goals::GoalRuntimeState::new(),
         guardian_review_session: crate::guardian::GuardianReviewSessionManager::default(),
         services,
+        js_repl,
         next_internal_sub_id: AtomicU64::new(0),
     };
 
@@ -4755,9 +4763,15 @@ where
             Harness::Native,
             /*harness_guidance*/ true,
         ),
-        code_mode_service: crate::tools::code_mode::CodeModeService::new(),
+        code_mode_service: crate::tools::code_mode::CodeModeService::new(
+            config.js_repl_node_path.clone(),
+        ),
         environment_manager: Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
     };
+    let js_repl = Arc::new(JsReplHandle::with_node_path(
+        config.js_repl_node_path.clone(),
+        config.js_repl_node_module_dirs.clone(),
+    ));
 
     let plugin_outcome = services
         .plugins_manager
@@ -4791,6 +4805,7 @@ where
         turn_environments,
         session_configuration.cwd.clone(),
         "turn_id".to_string(),
+        Arc::clone(&js_repl),
         skills_outcome,
         /*goal_tools_supported*/ true,
     ));
@@ -4813,6 +4828,7 @@ where
         goal_runtime: crate::goals::GoalRuntimeState::new(),
         guardian_review_session: crate::guardian::GuardianReviewSessionManager::default(),
         services,
+        js_repl,
         next_internal_sub_id: AtomicU64::new(0),
     });
 

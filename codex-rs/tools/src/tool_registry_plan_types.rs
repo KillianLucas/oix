@@ -67,6 +67,8 @@ pub enum ToolHandlerKind {
     KimiTaskOutput,
     KimiTaskStop,
     KimiWriteFile,
+    JsRepl,
+    JsReplReset,
     ListAgentsV2,
     ListDir,
     Mcp,

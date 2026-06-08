@@ -44,6 +44,8 @@ use crate::create_deepseek_tui_tools;
 use crate::create_exec_command_tool;
 use crate::create_get_goal_tool;
 use crate::create_image_generation_tool;
+use crate::create_js_repl_reset_tool;
+use crate::create_js_repl_tool;
 use crate::create_kimi_cli_agent_tool;
 use crate::create_kimi_cli_ask_user_question_tool;
 use crate::create_kimi_cli_enter_plan_mode_tool;
@@ -697,6 +699,21 @@ pub fn build_tool_registry_plan(
             config.code_mode_enabled,
         );
         plan.register_handler("update_goal", ToolHandlerKind::Goal);
+    }
+
+    if config.has_environment && config.js_repl_enabled {
+        plan.push_spec(
+            create_js_repl_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        plan.push_spec(
+            create_js_repl_reset_tool(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
+        plan.register_handler("js_repl", ToolHandlerKind::JsRepl);
+        plan.register_handler("js_repl_reset", ToolHandlerKind::JsReplReset);
     }
 
     plan.push_spec(
