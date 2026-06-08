@@ -78,6 +78,14 @@ fn guardian_approval_is_stable_and_enabled_by_default() {
 }
 
 #[test]
+fn goals_is_stable_and_enabled_by_default() {
+    let spec = Feature::Goals.info();
+
+    assert_eq!(spec.stage, Stage::Stable);
+    assert_eq!(Feature::Goals.default_enabled(), true);
+}
+
+#[test]
 fn external_migration_is_experimental_and_disabled_by_default() {
     let spec = Feature::ExternalMigration.info();
     let stage = spec.stage;

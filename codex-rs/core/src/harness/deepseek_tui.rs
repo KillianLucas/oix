@@ -36,7 +36,17 @@ pub(crate) fn build_request(
     if should_write_generated_codewhale_instructions && let Some(cwd) = prompt.cwd.as_deref() {
         write_generated_codewhale_project_instructions(cwd);
     }
-    let tools = create_deepseek_tui_chat_tools_json();
+    let mut tools = create_deepseek_tui_chat_tools_json();
+    for spec in super::kimi_cli::goal_tool_specs(&prompt.tools) {
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.parameters,
+            }
+        }));
+    }
     let tool_kinds = prompt
         .tools
         .iter()
@@ -513,6 +523,44 @@ mod tests {
                 .contains("CONSTITUTION OF CODEWHALE")
         );
         assert!(tool_kinds.is_empty());
+    }
+
+    #[test]
+    fn deepseek_tui_request_includes_goal_specs_from_prompt() {
+        let prompt = Prompt {
+            tools: vec![
+                codex_tools::create_get_goal_tool(),
+                codex_tools::create_create_goal_tool(),
+                codex_tools::create_update_goal_tool(),
+            ],
+            ..Prompt::default()
+        };
+        let (request, _) = build_request(&prompt, &model_info()).expect("request");
+
+        let names: Vec<&str> = request["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"get_goal"));
+        assert!(names.contains(&"create_goal"));
+        assert!(names.contains(&"update_goal"));
+    }
+
+    #[test]
+    fn deepseek_tui_request_unchanged_when_no_goal_specs() {
+        let (request, _) = build_request(&Prompt::default(), &model_info()).expect("request");
+
+        let names: Vec<&str> = request["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect();
+        assert!(!names.contains(&"get_goal"));
+        assert!(!names.contains(&"create_goal"));
+        assert!(!names.contains(&"update_goal"));
     }
 
     fn model_info() -> ModelInfo {

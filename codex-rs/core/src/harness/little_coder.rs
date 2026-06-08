@@ -20,7 +20,7 @@ pub(crate) fn build_request(
         "content": build_system_prompt(prompt),
     })];
     messages.extend(pi::build_messages(&prompt.get_formatted_input())?);
-    let tools = build_tools();
+    let tools = build_tools(&prompt.tools);
     let tool_kinds = tools
         .iter()
         .filter_map(|tool| {
@@ -110,8 +110,8 @@ fn message_content(content: &[ContentItem]) -> String {
         .collect()
 }
 
-fn build_tools() -> Vec<Value> {
-    vec![
+fn build_tools(tools: &[codex_tools::ToolSpec]) -> Vec<Value> {
+    let mut built = vec![
         pi::tool(
             "read",
             "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
@@ -212,7 +212,15 @@ fn build_tools() -> Vec<Value> {
             "Kill and restart the bash session. Use only if it becomes unresponsive.",
             json!({"type":"object","properties":{}}),
         ),
-    ]
+    ];
+    for spec in crate::harness::kimi_cli::goal_tool_specs(tools) {
+        built.push(pi::tool(
+            &spec.name,
+            &spec.description,
+            serde_json::to_value(&spec.parameters).unwrap_or_default(),
+        ));
+    }
+    built
 }
 
 const READ_WRITE_TOOL_GUIDANCE: &str = r#"## Tool Usage Guidance
@@ -345,3 +353,40 @@ This task involves online research. Before producing a final answer:
 3. Only after evidence is in place should you consider any Edit/Write tool calls.
 Skipping the gather step (going straight to Edit/Write or guessing from memory) is wrong — restart with the browse step instead.
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::build_tools;
+    use serde_json::Value;
+
+    fn tool_names(tools: &[Value]) -> Vec<String> {
+        tools
+            .iter()
+            .filter_map(|tool| {
+                tool.get("function")
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn little_coder_tools_unchanged_when_no_goal_specs() {
+        let names = tool_names(&build_tools(&[]));
+        assert!(!names.iter().any(|name| name == "get_goal"));
+    }
+
+    #[test]
+    fn little_coder_tools_include_goal_specs_from_prompt() {
+        let tools = vec![
+            codex_tools::create_get_goal_tool(),
+            codex_tools::create_create_goal_tool(),
+            codex_tools::create_update_goal_tool(),
+        ];
+        let names = tool_names(&build_tools(&tools));
+        assert!(names.iter().any(|name| name == "get_goal"));
+        assert!(names.iter().any(|name| name == "create_goal"));
+        assert!(names.iter().any(|name| name == "update_goal"));
+    }
+}

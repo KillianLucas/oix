@@ -32,7 +32,7 @@ pub(crate) fn build_request(
         )?
         .collect(),
     ));
-    let tools = build_tools();
+    let tools = build_tools(&prompt.tools);
     let tool_kinds = tools
         .iter()
         .filter_map(|tool| {
@@ -230,6 +230,56 @@ fn sort_kimi_entries(entries: &mut [std::fs::DirEntry]) {
     });
 }
 
-fn build_tools() -> Vec<Value> {
-    serde_json::from_str(KIMI_CODE_TOOLS).unwrap_or_default()
+fn build_tools(tools: &[codex_tools::ToolSpec]) -> Vec<Value> {
+    let mut built: Vec<Value> = serde_json::from_str(KIMI_CODE_TOOLS).unwrap_or_default();
+    for spec in kimi_cli::goal_tool_specs(tools) {
+        built.push(json!({
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.parameters,
+            }
+        }));
+    }
+    built
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_tools;
+    use serde_json::Value;
+
+    fn tool_names(tools: &[Value]) -> Vec<String> {
+        tools
+            .iter()
+            .filter_map(|tool| {
+                tool.get("function")
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn kimi_code_tools_unchanged_when_no_goal_specs() {
+        let names = tool_names(&build_tools(&[]));
+        assert!(!names.iter().any(|name| name == "get_goal"));
+        assert!(!names.iter().any(|name| name == "create_goal"));
+        assert!(!names.iter().any(|name| name == "update_goal"));
+    }
+
+    #[test]
+    fn kimi_code_tools_include_goal_specs_from_prompt() {
+        let tools = vec![
+            codex_tools::create_get_goal_tool(),
+            codex_tools::create_create_goal_tool(),
+            codex_tools::create_update_goal_tool(),
+        ];
+        let names = tool_names(&build_tools(&tools));
+        assert!(names.iter().any(|name| name == "get_goal"));
+        assert!(names.iter().any(|name| name == "create_goal"));
+        assert!(names.iter().any(|name| name == "update_goal"));
+    }
 }

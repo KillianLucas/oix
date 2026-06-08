@@ -15,8 +15,11 @@ use codex_protocol::openai_models::ReasoningControl;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_tools::CREATE_GOAL_TOOL_NAME;
+use codex_tools::GET_GOAL_TOOL_NAME;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
+use codex_tools::UPDATE_GOAL_TOOL_NAME;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::HashSet;
@@ -479,6 +482,23 @@ pub(super) fn build_tools(tools: &[ToolSpec]) -> Result<Vec<Value>, serde_json::
         }));
     }
     Ok(converted)
+}
+
+/// Returns the goal tool specs (`get_goal`/`create_goal`/`update_goal`) present
+/// in `tools`. Harnesses that build a hardcoded tool list use this to forward the
+/// goal tools when they are enabled; when goals are disabled, `tools` contains no
+/// goal specs and the iterator is empty.
+pub(super) fn goal_tool_specs(tools: &[ToolSpec]) -> impl Iterator<Item = &ResponsesApiTool> {
+    tools.iter().filter_map(|tool| match tool {
+        ToolSpec::Function(spec)
+            if spec.name == GET_GOAL_TOOL_NAME
+                || spec.name == CREATE_GOAL_TOOL_NAME
+                || spec.name == UPDATE_GOAL_TOOL_NAME =>
+        {
+            Some(spec)
+        }
+        _ => None,
+    })
 }
 
 fn flush_pending_tool_calls(
