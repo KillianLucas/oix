@@ -28,12 +28,16 @@ pub use feedback_diagnostics::FeedbackDiagnostic;
 pub use feedback_diagnostics::FeedbackDiagnostics;
 
 const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
-// Sentry rejects an event whose attachments exceed 40 MiB compressed / 200 MiB
-// uncompressed with HTTP 413 and drops the ENTIRE upload, so cap each file and
-// the combined payload well under that for every feedback type.
+// The Sentry Rust SDK posts the envelope UNCOMPRESSED (no Content-Encoding; see
+// the sentry 0.46 transports, which just `envelope.to_writer` the raw body), so
+// the binding limit is Sentry's 40 MiB request cap on those raw bytes, not the
+// 200 MiB-uncompressed allowance (that only applies when the client compresses,
+// which this SDK does not). Over the limit Sentry returns 413 and drops the
+// ENTIRE upload, so keep the combined payload under 40 MiB with headroom for the
+// event JSON and item headers.
 // https://docs.sentry.io/platforms/javascript/enriching-events/attachments/
-const MAX_ATTACHMENT_BYTES: usize = 8 * 1024 * 1024; // 8 MiB per file
-const MAX_TOTAL_ATTACHMENT_BYTES: usize = 24 * 1024 * 1024; // 24 MiB combined
+const MAX_ATTACHMENT_BYTES: usize = 28 * 1024 * 1024; // 28 MiB per file
+const MAX_TOTAL_ATTACHMENT_BYTES: usize = 32 * 1024 * 1024; // 32 MiB combined (< 40 MiB wire)
 const MIN_ATTACHMENT_BYTES: usize = 4 * 1024; // skip fragments below this
 // Open Interpreter Sentry org. The same Sentry project also receives events
 // from the workstation app and other surfaces, so events from this binary are
