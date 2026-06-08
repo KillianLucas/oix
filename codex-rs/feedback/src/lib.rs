@@ -28,6 +28,13 @@ pub use feedback_diagnostics::FeedbackDiagnostic;
 pub use feedback_diagnostics::FeedbackDiagnostics;
 
 const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
+// Sentry rejects an event whose attachments exceed 40 MiB compressed / 200 MiB
+// uncompressed with HTTP 413 and drops the ENTIRE upload, so cap each file and
+// the combined payload well under that for every feedback type.
+// https://docs.sentry.io/platforms/javascript/enriching-events/attachments/
+const MAX_ATTACHMENT_BYTES: usize = 8 * 1024 * 1024; // 8 MiB per file
+const MAX_TOTAL_ATTACHMENT_BYTES: usize = 24 * 1024 * 1024; // 24 MiB combined
+const MIN_ATTACHMENT_BYTES: usize = 4 * 1024; // skip fragments below this
 // Open Interpreter Sentry org. The same Sentry project also receives events
 // from the workstation app and other surfaces, so events from this binary are
 // distinguished by the `app` tag, the `release` prefix below, and the
@@ -525,26 +532,28 @@ impl FeedbackSnapshot {
         extra_attachment_paths: &[PathBuf],
         logs_override: Option<Vec<u8>>,
     ) -> Vec<sentry::protocol::Attachment> {
-        use sentry::protocol::Attachment;
-
         let mut attachments = Vec::new();
+        // Keep each file and the combined payload under Sentry's upload limit so
+        // a large session does not 413 and drop every attachment.
+        let mut remaining = MAX_TOTAL_ATTACHMENT_BYTES;
 
         if include_logs {
-            attachments.push(Attachment {
-                buffer: logs_override.unwrap_or_else(|| self.bytes.clone()),
-                filename: String::from("codex-logs.log"),
-                content_type: Some("text/plain".to_string()),
-                ty: None,
-            });
+            let buffer = logs_override.unwrap_or_else(|| self.bytes.clone());
+            push_capped(
+                &mut attachments,
+                &mut remaining,
+                buffer,
+                String::from("codex-logs.log"),
+            );
         }
 
         if let Some(text) = self.feedback_diagnostics_attachment_text(include_logs) {
-            attachments.push(Attachment {
-                buffer: text.into_bytes(),
-                filename: FEEDBACK_DIAGNOSTICS_ATTACHMENT_FILENAME.to_string(),
-                content_type: Some("text/plain".to_string()),
-                ty: None,
-            });
+            push_capped(
+                &mut attachments,
+                &mut remaining,
+                text.into_bytes(),
+                FEEDBACK_DIAGNOSTICS_ATTACHMENT_FILENAME.to_string(),
+            );
         }
 
         for path in extra_attachment_paths {
@@ -563,16 +572,53 @@ impl FeedbackSnapshot {
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "extra-log.log".to_string());
-            attachments.push(Attachment {
-                buffer: data,
-                filename,
-                content_type: Some("text/plain".to_string()),
-                ty: None,
-            });
+            push_capped(&mut attachments, &mut remaining, data, filename);
         }
 
         attachments
     }
+}
+
+/// Append a feedback attachment, capping it to stay within Sentry's per-event
+/// upload budget. Oversized buffers keep their tail (most recent activity) and
+/// get a marker describing what was dropped; once the combined budget is spent,
+/// further attachments are skipped rather than risking a 413 that drops them all.
+fn push_capped(
+    attachments: &mut Vec<sentry::protocol::Attachment>,
+    remaining: &mut usize,
+    buffer: Vec<u8>,
+    filename: String,
+) {
+    if *remaining < MIN_ATTACHMENT_BYTES {
+        tracing::warn!(filename = %filename, "feedback attachment budget exhausted; skipping");
+        return;
+    }
+    let cap = MAX_ATTACHMENT_BYTES.min(*remaining);
+    let buffer = cap_attachment_buffer(buffer, cap);
+    *remaining = remaining.saturating_sub(buffer.len());
+    attachments.push(sentry::protocol::Attachment {
+        buffer,
+        filename,
+        content_type: Some("text/plain".to_string()),
+        ty: None,
+    });
+}
+
+/// Truncate `buffer` to at most `max` bytes, keeping the tail and prepending a
+/// marker noting how much was omitted. Returns `buffer` unchanged when it fits.
+fn cap_attachment_buffer(buffer: Vec<u8>, max: usize) -> Vec<u8> {
+    if buffer.len() <= max {
+        return buffer;
+    }
+    // Reserve room for the marker so the result still fits within `max`.
+    const MARKER_RESERVE: usize = 128;
+    let keep = max.saturating_sub(MARKER_RESERVE);
+    let omitted = buffer.len() - keep;
+    let marker =
+        format!("[codex-feedback] truncated: omitted first {omitted} bytes, kept last {keep} bytes\n");
+    let mut out = marker.into_bytes();
+    out.extend_from_slice(&buffer[buffer.len() - keep..]);
+    out
 }
 
 fn display_classification(classification: &str) -> String {
@@ -747,6 +793,29 @@ mod tests {
         );
         assert_eq!(attachments_without_diagnostics[0].buffer, vec![1]);
         fs::remove_file(extra_path).expect("extra attachment should be removed");
+    }
+
+    #[test]
+    fn cap_attachment_buffer_keeps_tail_with_marker() {
+        let data: Vec<u8> = (0..2048u16).map(|n| n as u8).collect();
+        let capped = cap_attachment_buffer(data.clone(), 512);
+        assert!(capped.len() <= 512);
+        assert!(capped.starts_with(b"[codex-feedback] truncated"));
+        assert!(capped.ends_with(&data[data.len() - 64..]));
+        // Buffers within the cap are returned unchanged.
+        assert_eq!(cap_attachment_buffer(vec![1, 2, 3], 512), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn feedback_attachments_cap_oversized_logs() {
+        let big = vec![b'x'; MAX_ATTACHMENT_BYTES + 4096];
+        let attachments = CodexFeedback::new()
+            .snapshot(/*session_id*/ None)
+            .feedback_attachments(/*include_logs*/ true, &[], Some(big));
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].filename, "codex-logs.log");
+        assert!(attachments[0].buffer.len() <= MAX_ATTACHMENT_BYTES);
+        assert!(attachments[0].buffer.starts_with(b"[codex-feedback] truncated"));
     }
 
     #[test]
