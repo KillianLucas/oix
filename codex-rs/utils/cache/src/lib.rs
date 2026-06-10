@@ -190,4 +190,25 @@ mod tests {
 
         assert!(cache.blocking_lock().is_none());
     }
+
+    /// `block_in_place` panics on a current_thread runtime, killing the
+    /// calling task while the runtime keeps polling other tasks. Binaries
+    /// that drive codex-core must therefore use the multi-thread runtime
+    /// flavor (see `arg0_dispatch_or_else`). If this test starts failing,
+    /// that constraint has been lifted.
+    #[test]
+    fn panics_inside_current_thread_runtime() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let join_error = tokio::spawn(async {
+                let cache = BlockingLruCache::new(NonZeroUsize::new(2).expect("capacity"));
+                cache.insert("first", /*value*/ 1)
+            })
+            .await
+            .expect_err("cache access panics on a current_thread runtime");
+            assert!(join_error.is_panic());
+        });
+    }
 }

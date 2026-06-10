@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use codex_arg0::Arg0DispatchPaths;
-use codex_arg0::arg0_dispatch_or_else_current_thread;
+use codex_arg0::arg0_dispatch_or_else;
 use codex_tui::AppExitInfo;
 use codex_tui::ExitReason;
 use codex_utils_cli::CliConfigOverrides;
@@ -55,7 +55,7 @@ fn main_inner() -> anyhow::Result<()> {
     record_startup_trace_event("interpreter.main.enter");
     ensure_interpreter_home_env()?;
     record_startup_trace_event("interpreter.main.home.ready");
-    arg0_dispatch_or_else_current_thread(|arg0_paths: Arg0DispatchPaths| async move {
+    arg0_dispatch_or_else(|arg0_paths: Arg0DispatchPaths| async move {
         let RootTuiCli {
             config_overrides,
             feature_toggles,
