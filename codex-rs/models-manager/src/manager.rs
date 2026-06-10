@@ -322,8 +322,8 @@ impl OpenAiModelsManager {
         let (models, etag) = self.endpoint_client.list_models(&client_version).await?;
         self.apply_remote_models(models.clone()).await;
         *self.etag.write().await = etag.clone();
-        // Persist the fetched models, not the merged catalog, so baked models
-        // never get written back to disk as if the backend had served them.
+        // The cache must only ever hold fetched models; persisting baked
+        // catalog entries would resurrect retired models on reload.
         self.cache_manager
             .persist_cache(&models, etag, client_version)
             .await;
