@@ -9,16 +9,13 @@
 </p>
 
 <p align="center">
-  <a href="https://www.openinterpreter.com"><img alt="English" src="https://img.shields.io/badge/English-white?style=flat-square" /></a>
-  <a href="https://www.openinterpreter.com/es"><img alt="Español" src="https://img.shields.io/badge/Espa%C3%B1ol-white?style=flat-square" /></a>
-  <a href="https://www.openinterpreter.com/fr"><img alt="Français" src="https://img.shields.io/badge/Fran%C3%A7ais-white?style=flat-square" /></a>
-  <a href="https://www.openinterpreter.com/de"><img alt="Deutsch" src="https://img.shields.io/badge/Deutsch-white?style=flat-square" /></a>
-  <a href="https://www.openinterpreter.com/pt"><img alt="Português" src="https://img.shields.io/badge/Portugu%C3%AAs-white?style=flat-square" /></a>
-  <a href="https://www.openinterpreter.com/zh"><img alt="中文" src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-white?style=flat-square" /></a>
-  <a href="https://www.openinterpreter.com/ja"><img alt="日本語" src="https://img.shields.io/badge/%E6%97%A5%E6%9C%AC%E8%AA%9E-white?style=flat-square" /></a>
+  <a href="https://www.openinterpreter.com/docs/terminal">
+    <img alt="A close-up of a laptop screen running a terminal agent" src="https://www.openinterpreter.com/blog/open-interpreter-1-0/blog-hero-1.jpg" width="720" />
+  </a>
 </p>
 
-[![A close-up of a laptop screen running a terminal agent](https://www.openinterpreter.com/blog/open-interpreter-1-0/blog-hero-1.jpg)](https://www.openinterpreter.com/docs/terminal)
+> [!NOTE]
+> This is the new Rust version of Open Interpreter. Looking for the original Python project? It lives on as a community-maintained fork at [endolith/open-interpreter](https://github.com/endolith/open-interpreter).
 
 ### Installation
 
