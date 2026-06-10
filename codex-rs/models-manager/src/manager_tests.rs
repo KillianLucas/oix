@@ -573,6 +573,208 @@ async fn refresh_available_models_drops_removed_remote_models() {
 }
 
 #[tokio::test]
+async fn refresh_available_models_drops_baked_models_missing_from_codex_fetch() {
+    let retired_model = remote_model("retired-model", "Retired", /*priority*/ 1);
+    let live_model = remote_model("live-model", "Live", /*priority*/ 9);
+
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::new(vec![vec![live_model.clone()]]);
+    let manager = openai_manager_for_tests_with_auth_and_base_models(
+        codex_home.path().to_path_buf(),
+        endpoint.clone(),
+        Some(AuthManager::from_auth_for_testing(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        )),
+        vec![retired_model],
+    );
+
+    manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect("refresh succeeds");
+
+    assert_eq!(manager.get_remote_models().await, vec![live_model]);
+    let available = manager
+        .try_list_models()
+        .expect("models should be available");
+    assert!(
+        !available
+            .iter()
+            .any(|preset| preset.model == "retired-model"),
+        "baked model absent from the fetched manifest should not be listed"
+    );
+    let default = available
+        .iter()
+        .find(|preset| preset.is_default)
+        .expect("a default model should be marked");
+    assert_eq!(default.model, "live-model");
+}
+
+#[tokio::test]
+async fn refresh_available_models_keeps_remote_hidden_visibility_on_codex_fetch() {
+    let baked_visible = remote_model("hidden-remotely", "Hidden Remotely", /*priority*/ 1);
+    let fetched_hidden = remote_model_with_visibility(
+        "hidden-remotely",
+        "Hidden Remotely",
+        /*priority*/ 9,
+        "hide",
+    );
+    let fetched_visible = remote_model("still-visible", "Still Visible", /*priority*/ 5);
+
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::new(vec![vec![fetched_hidden, fetched_visible]]);
+    let manager = openai_manager_for_tests_with_auth_and_base_models(
+        codex_home.path().to_path_buf(),
+        endpoint.clone(),
+        Some(AuthManager::from_auth_for_testing(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        )),
+        vec![baked_visible],
+    );
+
+    manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect("refresh succeeds");
+
+    let available = manager
+        .try_list_models()
+        .expect("models should be available");
+    let hidden = available
+        .iter()
+        .find(|preset| preset.model == "hidden-remotely")
+        .expect("remotely hidden model should still resolve metadata");
+    assert!(
+        !hidden.show_in_picker,
+        "remote hide visibility must not be overridden by the baked list visibility"
+    );
+    assert!(!hidden.is_default);
+    let default = available
+        .iter()
+        .find(|preset| preset.is_default)
+        .expect("a default model should be marked");
+    assert_eq!(default.model, "still-visible");
+}
+
+#[tokio::test]
+async fn refresh_available_models_cache_load_does_not_resurrect_baked_models() {
+    let retired_model = remote_model("retired-model", "Retired", /*priority*/ 1);
+    let live_model = remote_model("live-model", "Live", /*priority*/ 9);
+    let codex_home = tempdir().expect("temp dir");
+
+    let first_endpoint = TestModelsEndpoint::new(vec![vec![live_model.clone()]]);
+    let first_manager = openai_manager_for_tests_with_auth_and_base_models(
+        codex_home.path().to_path_buf(),
+        first_endpoint.clone(),
+        Some(AuthManager::from_auth_for_testing(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        )),
+        vec![retired_model.clone()],
+    );
+    first_manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect("initial refresh succeeds");
+
+    let second_endpoint = TestModelsEndpoint::new(Vec::new());
+    let second_manager = openai_manager_for_tests_with_auth_and_base_models(
+        codex_home.path().to_path_buf(),
+        second_endpoint.clone(),
+        Some(AuthManager::from_auth_for_testing(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        )),
+        vec![retired_model],
+    );
+    second_manager
+        .refresh_available_models(RefreshStrategy::OnlineIfUncached)
+        .await
+        .expect("cached refresh succeeds");
+
+    assert_eq!(second_manager.get_remote_models().await, vec![live_model]);
+    assert_eq!(
+        second_endpoint.fetch_count(),
+        0,
+        "fresh cache should avoid a model fetch"
+    );
+}
+
+#[tokio::test]
+async fn refresh_available_models_refetches_when_cache_schema_outdated() {
+    let initial_models = vec![remote_model("old", "Old", /*priority*/ 1)];
+    let updated_models = vec![remote_model("new", "New", /*priority*/ 2)];
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::new(vec![initial_models, updated_models.clone()]);
+    let manager = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint.clone());
+
+    manager
+        .refresh_available_models(RefreshStrategy::OnlineIfUncached)
+        .await
+        .expect("initial refresh succeeds");
+
+    // Simulate a cache file written before the schema version field existed.
+    manager
+        .cache_manager
+        .mutate_cache_for_test(|cache| {
+            cache.schema_version = 0;
+        })
+        .await
+        .expect("cache mutation succeeds");
+
+    manager
+        .refresh_available_models(RefreshStrategy::OnlineIfUncached)
+        .await
+        .expect("second refresh succeeds");
+    assert_models_contain(&manager.get_remote_models().await, &updated_models);
+    assert_eq!(
+        endpoint.fetch_count(),
+        2,
+        "outdated cache schema should fetch models again"
+    );
+}
+
+#[derive(Debug)]
+struct FailingModelsEndpoint;
+
+#[async_trait]
+impl ModelsEndpointClient for FailingModelsEndpoint {
+    fn has_command_auth(&self) -> bool {
+        false
+    }
+
+    async fn uses_codex_backend(&self) -> bool {
+        true
+    }
+
+    async fn list_models(
+        &self,
+        _client_version: &str,
+    ) -> CoreResult<(Vec<ModelInfo>, Option<String>)> {
+        Err(codex_protocol::error::CodexErr::Timeout)
+    }
+}
+
+#[tokio::test]
+async fn refresh_available_models_keeps_baked_models_when_fetch_fails() {
+    let baked_model = remote_model("baked-model", "Baked", /*priority*/ 1);
+    let codex_home = tempdir().expect("temp dir");
+    let manager = openai_manager_for_tests_with_auth_and_base_models(
+        codex_home.path().to_path_buf(),
+        Arc::new(FailingModelsEndpoint),
+        Some(AuthManager::from_auth_for_testing(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        )),
+        vec![baked_model.clone()],
+    );
+
+    manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect_err("refresh should surface the fetch failure");
+
+    assert_eq!(manager.get_remote_models().await, vec![baked_model]);
+}
+
+#[tokio::test]
 async fn refresh_available_models_skips_network_without_chatgpt_auth() {
     let dynamic_slug = "dynamic-model-only-for-test-noauth";
     let codex_home = tempdir().expect("temp dir");
