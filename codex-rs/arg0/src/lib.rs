@@ -181,14 +181,6 @@ where
     arg0_dispatch_with_runtime(main_fn, build_multi_thread_runtime)
 }
 
-pub fn arg0_dispatch_or_else_current_thread<F, Fut>(main_fn: F) -> anyhow::Result<()>
-where
-    F: FnOnce(Arg0DispatchPaths) -> Fut,
-    Fut: Future<Output = anyhow::Result<()>>,
-{
-    arg0_dispatch_with_runtime(main_fn, build_current_thread_runtime)
-}
-
 pub fn run_on_large_stack<F>(main_fn: F) -> anyhow::Result<()>
 where
     F: FnOnce() -> anyhow::Result<()> + Send + 'static,
@@ -268,12 +260,6 @@ fn build_multi_thread_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all();
     builder.thread_stack_size(TOKIO_WORKER_STACK_SIZE_BYTES);
-    Ok(builder.build()?)
-}
-
-fn build_current_thread_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
-    let mut builder = tokio::runtime::Builder::new_current_thread();
-    builder.enable_all();
     Ok(builder.build()?)
 }
 

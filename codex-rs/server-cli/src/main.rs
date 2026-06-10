@@ -4,7 +4,7 @@ mod home;
 mod startup_trace;
 mod system_import;
 
-use codex_arg0::arg0_dispatch_or_else_current_thread;
+use codex_arg0::arg0_dispatch_or_else;
 use codex_login::KIMI_CODE_PROVIDER_ID;
 use startup_trace::record_startup_trace_event;
 use std::ffi::OsString;
@@ -55,10 +55,10 @@ fn main_inner() -> anyhow::Result<()> {
                     embedded_app_server: false,
                 };
                 ensure_daemon_command_uses_local_daemon(&launch)?;
-                arg0_dispatch_or_else_current_thread(|_| async move { kill_daemon(force).await })
+                arg0_dispatch_or_else(|_| async move { kill_daemon(force).await })
             }
             TopLevelCommand::ProviderAuth { provider_id } => {
-                arg0_dispatch_or_else_current_thread(|_| async move {
+                arg0_dispatch_or_else(|_| async move {
                     print_provider_auth_token(provider_id).await
                 })
             }
