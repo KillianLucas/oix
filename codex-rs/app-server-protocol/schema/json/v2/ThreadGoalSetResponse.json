@@ -61,21 +61,11 @@
   "properties": {
     "goal": {
       "$ref": "#/definitions/ThreadGoal"
-    },
-    "threadId": {
-      "type": "string"
-    },
-    "turnId": {
-      "type": [
-        "string",
-        "null"
-      ]
     }
   },
   "required": [
-    "goal",
-    "threadId"
+    "goal"
   ],
-  "title": "ThreadGoalUpdatedNotification",
+  "title": "ThreadGoalSetResponse",
   "type": "object"
 }

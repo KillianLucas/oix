@@ -2015,6 +2015,14 @@ fn goal_status_indicator_formats_statuses_and_budgets() {
             usage: Some("40K tokens".to_string()),
         })
     );
+    assert_eq!(
+        goal_status_indicator_from_app_goal(&test_thread_goal(
+            codex_app_server_protocol::ThreadGoalStatus::Blocked,
+            /*token_budget*/ Some(50_000),
+            /*tokens_used*/ 40_000,
+        )),
+        Some(GoalStatusIndicator::Blocked)
+    );
 }
 
 #[test]
@@ -2035,6 +2043,10 @@ fn goal_status_indicator_line_formats_goal_text() {
         (
             GoalStatusIndicator::Paused,
             "Goal paused (/goal to unpause)",
+        ),
+        (
+            GoalStatusIndicator::Blocked,
+            "Goal blocked (/goal to unpause)",
         ),
         (
             GoalStatusIndicator::BudgetLimited { usage: None },

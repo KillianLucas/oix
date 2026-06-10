@@ -63,11 +63,11 @@ pub(crate) fn build_request(
         search_agent || task_agent,
     )?);
     let tools = if search_agent {
-        build_search_agent_tools()
+        build_search_agent_tools(&prompt.tools)
     } else if task_agent {
-        build_task_agent_tools()
+        build_task_agent_tools(&prompt.tools)
     } else {
-        build_tools()
+        build_tools(&prompt.tools)
     };
     let tool_kinds = tools
         .iter()
@@ -555,8 +555,8 @@ fn discard_unanswered_tool_calls(
     pending_assistant_content.take();
 }
 
-fn build_tools() -> Vec<Value> {
-    vec![
+fn build_tools(tools: &[codex_tools::ToolSpec]) -> Vec<Value> {
+    let mut built = vec![
         tool(
             "bash",
             &bash_description(),
@@ -607,11 +607,19 @@ fn build_tools() -> Vec<Value> {
             write_description(),
             json!({"type":"object","properties":{"content":{"type":"string","description":"The content to write to the file"},"filePath":{"type":"string","description":"The absolute path to the file to write (must be absolute, not relative)"}},"required":["content","filePath"]}),
         ),
-    ]
+    ];
+    for spec in super::kimi_cli::goal_tool_specs(tools) {
+        built.push(tool(
+            &spec.name,
+            &spec.description,
+            serde_json::to_value(&spec.parameters).unwrap_or_default(),
+        ));
+    }
+    built
 }
 
-fn build_search_agent_tools() -> Vec<Value> {
-    build_tools()
+fn build_search_agent_tools(tools: &[codex_tools::ToolSpec]) -> Vec<Value> {
+    build_tools(tools)
         .into_iter()
         .filter(|tool| {
             matches!(
@@ -624,8 +632,8 @@ fn build_search_agent_tools() -> Vec<Value> {
         .collect()
 }
 
-fn build_task_agent_tools() -> Vec<Value> {
-    build_tools()
+fn build_task_agent_tools(tools: &[codex_tools::ToolSpec]) -> Vec<Value> {
+    build_tools(tools)
         .into_iter()
         .filter(|tool| {
             !matches!(
@@ -704,4 +712,80 @@ fn webfetch_description() -> &'static str {
 
 fn write_description() -> &'static str {
     "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.\n- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.\n"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_search_agent_tools;
+    use super::build_task_agent_tools;
+    use super::build_tools;
+    use serde_json::Value;
+    use serde_json::json;
+
+    fn tool_names(tools: &[Value]) -> Vec<String> {
+        tools
+            .iter()
+            .filter_map(|tool| {
+                tool.get("function")
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    fn goal_tools() -> Vec<codex_tools::ToolSpec> {
+        vec![
+            codex_tools::create_get_goal_tool(),
+            codex_tools::create_create_goal_tool(),
+            codex_tools::create_update_goal_tool(),
+        ]
+    }
+
+    #[test]
+    fn opencode_tools_unchanged_when_no_goal_specs() {
+        let names = tool_names(&build_tools(&[]));
+        assert!(!names.iter().any(|name| name == "get_goal"));
+    }
+
+    #[test]
+    fn opencode_tools_include_goal_specs_from_prompt() {
+        let built = build_tools(&goal_tools());
+        let names = tool_names(&built);
+        assert!(names.iter().any(|name| name == "get_goal"));
+        assert!(names.iter().any(|name| name == "create_goal"));
+        assert!(names.iter().any(|name| name == "update_goal"));
+
+        // The serialized parameter schema must survive, not collapse to null/{}.
+        let function = |name: &str| -> Value {
+            built
+                .iter()
+                .find(|tool| tool["function"]["name"] == name)
+                .expect("tool present")["function"]
+                .clone()
+        };
+        assert!(
+            function("create_goal")["parameters"]["properties"]
+                .get("objective")
+                .is_some(),
+            "create_goal must expose its objective parameter"
+        );
+        assert_eq!(
+            function("update_goal")["parameters"]["properties"]["status"]["enum"],
+            json!(["complete", "blocked"]),
+            "update_goal must expose its status enum"
+        );
+    }
+
+    #[test]
+    fn opencode_task_agent_tools_include_goal_specs_from_prompt() {
+        let names = tool_names(&build_task_agent_tools(&goal_tools()));
+        assert!(names.iter().any(|name| name == "get_goal"));
+    }
+
+    #[test]
+    fn opencode_search_agent_tools_omit_goal_specs() {
+        let names = tool_names(&build_search_agent_tools(&goal_tools()));
+        assert!(!names.iter().any(|name| name == "get_goal"));
+    }
 }

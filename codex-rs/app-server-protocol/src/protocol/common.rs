@@ -285,17 +285,14 @@ client_request_definitions! {
         params: v2::ThreadSetNameParams,
         response: v2::ThreadSetNameResponse,
     },
-    #[experimental("thread/goal/set")]
     ThreadGoalSet => "thread/goal/set" {
         params: v2::ThreadGoalSetParams,
         response: v2::ThreadGoalSetResponse,
     },
-    #[experimental("thread/goal/get")]
     ThreadGoalGet => "thread/goal/get" {
         params: v2::ThreadGoalGetParams,
         response: v2::ThreadGoalGetResponse,
     },
-    #[experimental("thread/goal/clear")]
     ThreadGoalClear => "thread/goal/clear" {
         params: v2::ThreadGoalClearParams,
         response: v2::ThreadGoalClearResponse,
@@ -1074,9 +1071,7 @@ server_notification_definitions! {
     ThreadClosed => "thread/closed" (v2::ThreadClosedNotification),
     SkillsChanged => "skills/changed" (v2::SkillsChangedNotification),
     ThreadNameUpdated => "thread/name/updated" (v2::ThreadNameUpdatedNotification),
-    #[experimental("thread/goal/updated")]
     ThreadGoalUpdated => "thread/goal/updated" (v2::ThreadGoalUpdatedNotification),
-    #[experimental("thread/goal/cleared")]
     ThreadGoalCleared => "thread/goal/cleared" (v2::ThreadGoalClearedNotification),
     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (v2::ThreadTokenUsageUpdatedNotification),
     TurnStarted => "turn/started" (v2::TurnStartedNotification),
@@ -2102,7 +2097,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_goal_methods_are_marked_experimental() {
+    fn thread_goal_methods_are_not_marked_experimental() {
         let set_request = ClientRequest::ThreadGoalSet {
             request_id: RequestId::Integer(1),
             params: v2::ThreadGoalSetParams {
@@ -2127,20 +2122,20 @@ mod tests {
 
         assert_eq!(
             crate::experimental_api::ExperimentalApi::experimental_reason(&set_request),
-            Some("thread/goal/set")
+            None
         );
         assert_eq!(
             crate::experimental_api::ExperimentalApi::experimental_reason(&get_request),
-            Some("thread/goal/get")
+            None
         );
         assert_eq!(
             crate::experimental_api::ExperimentalApi::experimental_reason(&clear_request),
-            Some("thread/goal/clear")
+            None
         );
     }
 
     #[test]
-    fn thread_goal_notifications_are_marked_experimental() {
+    fn thread_goal_notifications_are_not_marked_experimental() {
         let goal = v2::ThreadGoal {
             thread_id: "thr_123".to_string(),
             objective: "ship goal mode".to_string(),
@@ -2162,11 +2157,11 @@ mod tests {
 
         assert_eq!(
             crate::experimental_api::ExperimentalApi::experimental_reason(&updated),
-            Some("thread/goal/updated")
+            None
         );
         assert_eq!(
             crate::experimental_api::ExperimentalApi::experimental_reason(&cleared),
-            Some("thread/goal/cleared")
+            None
         );
     }
 

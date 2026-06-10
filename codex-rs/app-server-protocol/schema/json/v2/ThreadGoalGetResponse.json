@@ -60,22 +60,16 @@
   },
   "properties": {
     "goal": {
-      "$ref": "#/definitions/ThreadGoal"
-    },
-    "threadId": {
-      "type": "string"
-    },
-    "turnId": {
-      "type": [
-        "string",
-        "null"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ThreadGoal"
+        },
+        {
+          "type": "null"
+        }
       ]
     }
   },
-  "required": [
-    "goal",
-    "threadId"
-  ],
-  "title": "ThreadGoalUpdatedNotification",
+  "title": "ThreadGoalGetResponse",
   "type": "object"
 }

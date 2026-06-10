@@ -280,6 +280,76 @@ async fn thread_start_granular_approval_policy_requires_experimental_api_capabil
     Ok(())
 }
 
+#[tokio::test]
+async fn thread_goal_get_allows_without_experimental_api_capability() -> Result<()> {
+    let server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+
+    let mut mcp = McpProcess::new(codex_home.path()).await?;
+    let init = mcp
+        .initialize_with_capabilities(
+            default_client_info(),
+            Some(InitializeCapabilities {
+                experimental_api: false,
+                opt_out_notification_methods: None,
+            }),
+        )
+        .await?;
+    let JSONRPCMessage::Response(_) = init else {
+        anyhow::bail!("expected initialize response, got {init:?}");
+    };
+
+    // Start an ephemeral thread so thread/goal/get reaches the handler with a
+    // deterministic domain error. Goals is enabled by default (Stage::Stable).
+    let start_id = mcp
+        .send_thread_start_request(ThreadStartParams {
+            model: Some("mock-model".to_string()),
+            ephemeral: Some(true),
+            ..Default::default()
+        })
+        .await?;
+    let start_resp: JSONRPCResponse = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(start_id)),
+    )
+    .await??;
+    let ThreadStartResponse { thread, .. } = to_response(start_resp)?;
+
+    let goal_id = mcp
+        .send_raw_request(
+            "thread/goal/get",
+            Some(serde_json::json!({ "threadId": thread.id })),
+        )
+        .await?;
+    let error = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(goal_id)),
+    )
+    .await??;
+
+    // The request must pass the experimental gate and reach the handler: it
+    // returns the goals domain error, NOT the experimentalApi capability error
+    // that a gated method would produce for this non-experimental client.
+    assert!(
+        !error
+            .error
+            .message
+            .contains("requires experimentalApi capability"),
+        "thread/goal/get must not be experimental-gated: {}",
+        error.error.message
+    );
+    assert!(
+        error
+            .error
+            .message
+            .contains("ephemeral thread does not support goals"),
+        "expected goals domain error, got: {}",
+        error.error.message
+    );
+    Ok(())
+}
+
 fn default_client_info() -> ClientInfo {
     ClientInfo {
         name: DEFAULT_CLIENT_NAME.to_string(),
