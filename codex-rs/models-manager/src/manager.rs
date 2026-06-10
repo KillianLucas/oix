@@ -320,11 +320,12 @@ impl OpenAiModelsManager {
     async fn fetch_and_update_models(&self) -> CoreResult<()> {
         let client_version = crate::client_version_to_whole();
         let (models, etag) = self.endpoint_client.list_models(&client_version).await?;
-        let merged_models = self.merged_provider_catalog_models(models);
-        *self.remote_models.write().await = merged_models.clone();
+        self.apply_remote_models(models.clone()).await;
         *self.etag.write().await = etag.clone();
+        // The cache must only ever hold fetched models; persisting baked
+        // catalog entries would resurrect retired models on reload.
         self.cache_manager
-            .persist_cache(&merged_models, etag, client_version)
+            .persist_cache(&models, etag, client_version)
             .await;
         Ok(())
     }
@@ -337,10 +338,24 @@ impl OpenAiModelsManager {
         self.etag.read().await.clone()
     }
 
-    /// Merge refreshed live/cache models with the generated provider catalog.
+    /// Apply refreshed live/cache models, merging with the generated provider
+    /// catalog only when the fetched manifest is not authoritative.
+    ///
+    /// A Codex-backend manifest with at least one listed model is the source of
+    /// truth for the available model set: the backend retires models by
+    /// removing them from the manifest, so baked catalog entries absent from
+    /// the fetch must not resurface as picker-visible or become the default.
     async fn apply_remote_models(&self, models: Vec<ModelInfo>) {
-        let merged_models = self.merged_provider_catalog_models(models);
-        *self.remote_models.write().await = merged_models;
+        let remote_is_authoritative = self.endpoint_client.uses_codex_backend().await
+            && models
+                .iter()
+                .any(|model| model.visibility == ModelVisibility::List);
+        let next_models = if remote_is_authoritative {
+            models
+        } else {
+            self.merged_provider_catalog_models(models)
+        };
+        *self.remote_models.write().await = next_models;
     }
 
     fn merged_provider_catalog_models(&self, models: Vec<ModelInfo>) -> Vec<ModelInfo> {

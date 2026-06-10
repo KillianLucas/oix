@@ -11,6 +11,11 @@ use tokio::fs;
 use tracing::error;
 use tracing::info;
 
+/// Bump when the persisted cache contents change incompatibly. Pre-versioned
+/// caches deserialize as 0 and are discarded; version 1 stores only fetched
+/// models (older caches persisted merged catalogs containing retired models).
+const MODELS_CACHE_SCHEMA_VERSION: u32 = 1;
+
 /// Manages loading and saving of models cache to disk.
 #[derive(Debug)]
 pub(crate) struct ModelsCacheManager {
@@ -47,6 +52,15 @@ impl ModelsCacheManager {
             fetched_at = %cache.fetched_at,
             "models cache: loaded cache file"
         );
+        if cache.schema_version != MODELS_CACHE_SCHEMA_VERSION {
+            info!(
+                cache_path = %self.cache_path.display(),
+                expected_schema_version = MODELS_CACHE_SCHEMA_VERSION,
+                cached_schema_version = cache.schema_version,
+                "models cache: cache schema mismatch"
+            );
+            return None;
+        }
         if cache.client_version.as_deref() != Some(expected_version) {
             info!(
                 cache_path = %self.cache_path.display(),
@@ -81,6 +95,7 @@ impl ModelsCacheManager {
         client_version: String,
     ) {
         let cache = ModelsCache {
+            schema_version: MODELS_CACHE_SCHEMA_VERSION,
             fetched_at: Utc::now(),
             etag,
             client_version: Some(client_version),
@@ -160,6 +175,8 @@ impl ModelsCacheManager {
 /// Serialized snapshot of models and metadata cached on disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ModelsCache {
+    #[serde(default)]
+    pub(crate) schema_version: u32,
     pub(crate) fetched_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) etag: Option<String>,
