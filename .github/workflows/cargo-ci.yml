@@ -26,7 +26,7 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       SCCACHE_CACHE_SIZE: 10G
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       # The workspace+tests target dir plus restored caches overflows the free
       # space on hosted runners (run 27234501588 died mid-build with "No space
       # left on device"). Drop preinstalled toolchains this job never uses
